@@ -1,0 +1,6 @@
+{
+  "name": "سامانه مدیریت فاکتور املاک",
+  "description": "نرم افزار مدیریت جامع قراردادها، فاکتورها، و مشتریان آژانس املاک، با پشتیبانی از اتصال به چاپگر، دستگاه کارتخوان (POS) و تقویم شمسی.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

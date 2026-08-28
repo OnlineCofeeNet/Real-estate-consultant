@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .animate-in {
+    animation-duration: 300ms;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    animation-fill-mode: both;
+  }
+  .fade-in {
+    animation-name: fadeIn;
+  }
+  .zoom-in-95 {
+    animation-name: zoomIn95;
+  }
+  .slide-in-from-right-4 {
+    animation-name: slideInRight;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes zoomIn95 {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes slideInRight {
+    from { opacity: 0; transform: translateX(1rem); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+}
+
+/* Persian Font Settings */
+@import url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.css');
+@import url('https://cdn.fontcdn.ir/Font/Persian/IRANSans/IRANSans.css');
+
+body {
+  font-family: 'Vazir', sans-serif;
+  transition: all 0.3s ease;
+}
+
+body.vazirmatn-font { font-family: 'Vazir', sans-serif; }
+body.iransans-font { font-family: 'IRANSans', sans-serif; }
+body.yekanbakh-font { font-family: Tahoma, sans-serif; }
+
+body.dark-mode {
+  background-color: #0f172a;
+  color: #f8fafc;
+}
+body.dark-mode .bg-white { background-color: #1e293b; border-color: #334155; }
+body.dark-mode .bg-slate-50 { background-color: #0f172a; border-color: #334155; }
+body.dark-mode .text-slate-800, body.dark-mode .text-slate-700, body.dark-mode .text-slate-900 { color: #f1f5f9; }
+body.dark-mode .text-slate-600, body.dark-mode .text-slate-500 { color: #cbd5e1; }
+body.dark-mode .border-slate-200, body.dark-mode .border-slate-100 { border-color: #334155; }
+body.dark-mode input, body.dark-mode select, body.dark-mode textarea { color: #f1f5f9; background-color: #0f172a !important; }
+
+/* Theme Colors */
+body.emerald-theme .text-emerald-700 { color: #047857; }
+body.purple-theme .text-emerald-700 { color: #7e22ce; }
+body.purple-theme .bg-emerald-600 { background-color: #9333ea; }
+body.purple-theme .hover\:bg-emerald-700:hover { background-color: #7e22ce; }
+body.purple-theme .focus\:ring-emerald-500:focus { --tw-ring-color: #a855f7; }
+
+body.amber-theme .text-emerald-700 { color: #b45309; }
+body.amber-theme .bg-emerald-600 { background-color: #d97706; }
+body.amber-theme .hover\:bg-emerald-700:hover { background-color: #b45309; }
+body.amber-theme .focus\:ring-emerald-500:focus { --tw-ring-color: #f59e0b; }
+
+body.blue-theme .text-emerald-700 { color: #1d4ed8; }
+body.blue-theme .bg-emerald-600 { background-color: #2563eb; }
+body.blue-theme .hover\:bg-emerald-700:hover { background-color: #1d4ed8; }
+body.blue-theme .focus\:ring-emerald-500:focus { --tw-ring-color: #3b82f6; }
+
