@@ -25,6 +25,7 @@ import * as XLSX from 'xlsx';
 import DatePicker from 'react-multi-date-picker';
 import persian from 'react-date-object/calendars/persian';
 import persian_fa from 'react-date-object/locales/persian_fa';
+import moment from 'moment-jalaali';
 import axios from 'axios';
 import { normalizeSearchQuery, toPersianDigits, toEnglishDigits, appendAgencySignature, getAgencySignature, formatTemplateMessage } from '../utils/format';
 
@@ -34,7 +35,9 @@ const initialCustomerForm: Partial<Customer> = {
   phone: '',
   phone2: '',
   birthDate: '',
+  contractStartDate: '',
   contractEndDate: '',
+  rentDueDay: undefined,
   rentPaymentDate: '',
   autoSendMessages: false,
   roles: [],
@@ -330,9 +333,15 @@ const Customers = () => {
       const finalMessageText = appendAgencySignature(rawText, settings);
 
       const activePlatforms = [];
-      if (settings?.telegramToken && customer.telegramId) activePlatforms.push({ name: 'telegram', token: settings.telegramToken, id: customer.telegramId });
-      if (settings?.baleToken && customer.baleId) activePlatforms.push({ name: 'bale', token: settings.baleToken, id: customer.baleId });
-      if (settings?.rubikaToken && customer.rubikaId) activePlatforms.push({ name: 'rubika', token: settings.rubikaToken, id: customer.rubikaId });
+      if (settings?.telegramToken && (customer.telegramId || customer.phone)) {
+        activePlatforms.push({ name: 'telegram', token: settings.telegramToken, id: customer.telegramId || customer.phone });
+      }
+      if (settings?.baleToken && (customer.baleId || customer.phone)) {
+        activePlatforms.push({ name: 'bale', token: settings.baleToken, id: customer.baleId || customer.phone });
+      }
+      if (settings?.rubikaToken && (customer.rubikaId || customer.phone)) {
+        activePlatforms.push({ name: 'rubika', token: settings.rubikaToken, id: customer.rubikaId || customer.phone });
+      }
 
       if (activePlatforms.length === 0) {
         await db.messageLogs.add({
@@ -349,25 +358,38 @@ const Customers = () => {
       for (const p of activePlatforms) {
         const cleanChatId = toEnglishDigits(p.id).trim();
         try {
-          await axios.post('/api/send-message', {
+          const res = await axios.post('/api/send-message', {
             platform: p.name,
             token: p.token,
             chatId: cleanChatId,
             message: finalMessageText,
             imageBase64
           });
-          successCount++;
-          await db.messageLogs.add({
-            date: Date.now(),
-            customerName: customer.fullName,
-            phone: customer.phone,
-            messenger: p.name,
-            message: finalMessageText,
-            status: 'sent',
-            chatId: cleanChatId
-          } as any);
+
+          if (res.data?.success) {
+            successCount++;
+            await db.messageLogs.add({
+              date: Date.now(),
+              customerName: customer.fullName,
+              phone: customer.phone,
+              messenger: p.name,
+              message: finalMessageText,
+              status: 'sent',
+              chatId: cleanChatId
+            } as any);
+          } else {
+            await db.messageLogs.add({
+              date: Date.now(),
+              customerName: customer.fullName,
+              phone: customer.phone,
+              messenger: p.name,
+              message: finalMessageText,
+              status: 'failed',
+              chatId: cleanChatId
+            } as any);
+          }
         } catch (err: any) {
-          console.warn('Customer message send error:', err?.response?.data || err.message);
+          console.log('Customer message send notice:', err?.response?.data?.details || err?.response?.data?.error || err.message);
           await db.messageLogs.add({
             date: Date.now(),
             customerName: customer.fullName,
@@ -381,7 +403,12 @@ const Customers = () => {
       }
     }
 
-    toast.success(`ارسال پیام پایان یافت. موفق: ${toPersianDigits(successCount)} پلتفرم`, { id: 'sendMessage' });
+    toast.dismiss('sendMessage');
+    if (successCount > 0) {
+      toast.success(`ارسال پیام پایان یافت. موفق: ${toPersianDigits(successCount)} پلتفرم`);
+    } else {
+      toast.error('هیچ پیامی ارسال نشد. مخاطبان باید ابتدا در ربات استارت (/start) زده باشند یا شناسه عددی چت آن‌ها ثبت شده باشد.');
+    }
     setIsMessageModalOpen(false);
     setMessageText('');
   };
@@ -726,35 +753,57 @@ const Customers = () => {
                       value={formData.birthDate || ''}
                       onChange={(date: any) => setFormData({...formData, birthDate: date ? date.format('YYYY/MM/DD') : ''})}
                       inputClass="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-                      placeholder="انتخاب تاریخ"
+                      placeholder="انتخاب تاریخ تولد"
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">اتمام قرارداد</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">تاریخ انعقاد قرارداد</label>
                   <div className="w-full">
                     <DatePicker
                       calendar={persian}
                       locale={persian_fa}
-                      value={formData.contractEndDate || ''}
-                      onChange={(date: any) => setFormData({...formData, contractEndDate: date ? date.format('YYYY/MM/DD') : ''})}
+                      value={formData.contractStartDate || ''}
+                      onChange={(date: any) => {
+                        const sDate = date ? date.format('YYYY/MM/DD') : '';
+                        let eDate = '';
+                        if (sDate) {
+                          try {
+                            eDate = moment(sDate, 'jYYYY/jMM/jDD').add(1, 'jYear').format('jYYYY/jMM/jDD');
+                          } catch (err) {
+                            eDate = '';
+                          }
+                        }
+                        setFormData({
+                          ...formData, 
+                          contractStartDate: sDate,
+                          contractEndDate: eDate
+                        });
+                      }}
                       inputClass="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-                      placeholder="انتخاب تاریخ"
+                      placeholder="انتخاب تاریخ انعقاد"
                     />
                   </div>
+                  {formData.contractEndDate && (
+                    <p className="text-[11px] text-emerald-700 font-bold mt-1 font-mono">
+                      اتمام ۱ ساله: {toPersianDigits(formData.contractEndDate)}
+                    </p>
+                  )}
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">موعد اجاره</label>
-                  <div className="w-full">
-                    <DatePicker
-                      calendar={persian}
-                      locale={persian_fa}
-                      value={formData.rentPaymentDate || ''}
-                      onChange={(date: any) => setFormData({...formData, rentPaymentDate: date ? date.format('YYYY/MM/DD') : ''})}
-                      inputClass="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-                      placeholder="انتخاب تاریخ"
-                    />
-                  </div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">روز موعد اجاره در هر ماه</label>
+                  <select
+                    className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:ring-2 focus:ring-emerald-500 outline-none text-sm font-mono"
+                    value={formData.rentDueDay || ''}
+                    onChange={e => setFormData({...formData, rentDueDay: e.target.value ? Number(e.target.value) : undefined})}
+                  >
+                    <option value="">انتخاب روز ماه (۱ الی ۳۱)</option>
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
+                      <option key={day} value={day}>
+                        روز {toPersianDigits(day)} هر ماه (ارسال ۱ روز قبل)
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

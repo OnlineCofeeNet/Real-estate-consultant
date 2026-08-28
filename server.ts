@@ -45,7 +45,7 @@ function cleanToken(token: string): string {
 // ----------------------------------------------------
 export interface BotUser {
   chatId: string;
-  platform: 'telegram' | 'bale';
+  platform: 'telegram' | 'bale' | 'rubika';
   username?: string;
   phone?: string;
   firstName?: string;
@@ -108,40 +108,94 @@ function findUserByUsername(username: string, platform?: string): BotUser | unde
   return botUsers.find(u => (!platform || u.platform === platform) && u.username && u.username.toLowerCase() === clean);
 }
 
-function resolveChatId(rawChatId: string | number, platform: string): { resolvedId: string | null; resolutionReason?: string } {
-  if (!rawChatId) return { resolvedId: null };
+function resolveChatId(rawChatId: string | number, platform: string): {
+  resolvedId: string | null;
+  effectivePlatform: string;
+  resolutionReason?: string;
+} {
+  if (!rawChatId) return { resolvedId: null, effectivePlatform: platform };
   const cleaned = normalizeDigits(String(rawChatId)).trim();
+  const withoutAt = cleaned.replace(/^@/, '').toLowerCase().trim();
 
-  // If it's a negative or standard numeric ID (e.g. 123456789 or -100123456789 for groups)
-  if (/^-?\d+$/.test(cleaned)) {
-    // If it looks like a phone number (e.g. starts with 09 or 98 or 9 with 10-11 digits)
-    if (cleaned.startsWith('09') || cleaned.startsWith('989') || (cleaned.startsWith('9') && cleaned.length === 10)) {
-      const matched = findUserByPhone(cleaned, platform);
-      if (matched) {
-        return { resolvedId: matched.chatId, resolutionReason: `یافت شده از شماره تماس مخاطب (${matched.fullName || matched.phone})` };
-      }
-      // A raw phone number CANNOT be sent directly as a chat_id to Telegram or Bale!
-      return { resolvedId: null, resolutionReason: `شماره ${cleaned} در ربات ${platform === 'telegram' ? 'تلگرام' : 'بله'} ثبت نشده است. کاربر باید ابتدا در ربات دکمه /start را بزند یا شماره خود را ارسال نماید.` };
+  // 1. Direct match by registered Chat ID across botUsers
+  const matchedById = botUsers.find(u => u.chatId === cleaned);
+  if (matchedById) {
+    const platName = matchedById.platform === 'telegram' ? 'تلگرام' : matchedById.platform === 'rubika' ? 'روبیکا' : 'بله';
+    return {
+      resolvedId: matchedById.chatId,
+      effectivePlatform: matchedById.platform,
+      resolutionReason: `یافت شده از کاربران متصل ${platName} (${matchedById.fullName || matchedById.username || matchedById.chatId})`
+    };
+  }
+
+  // 2. Direct match by username
+  if (withoutAt) {
+    let matchedByUsername = findUserByUsername(withoutAt, platform);
+    if (!matchedByUsername) {
+      matchedByUsername = findUserByUsername(withoutAt);
     }
-    // Genuine numeric Telegram/Bale chat ID
-    return { resolvedId: cleaned };
+    if (matchedByUsername) {
+      const platName = matchedByUsername.platform === 'telegram' ? 'تلگرام' : matchedByUsername.platform === 'rubika' ? 'روبیکا' : 'بله';
+      return {
+        resolvedId: matchedByUsername.chatId,
+        effectivePlatform: matchedByUsername.platform,
+        resolutionReason: `یافت شده از نام کاربری @${matchedByUsername.username} در ${platName}`
+      };
+    }
   }
 
-  // If it's a username (starts with @ or standard text)
-  const username = cleaned.replace(/^@/, '').toLowerCase().trim();
-  const matched = findUserByUsername(username, platform);
-  if (matched) {
-    return { resolvedId: matched.chatId, resolutionReason: `یافت شده از نام کاربری @${matched.username}` };
+  // 3. Check if it's a phone number (09..., +98..., 98..., 9...)
+  const normPhone = normalizePhone(cleaned);
+  if (normPhone && normPhone.startsWith('09') && normPhone.length === 11) {
+    let matchedByPhone = findUserByPhone(normPhone, platform);
+    if (!matchedByPhone) {
+      matchedByPhone = findUserByPhone(normPhone);
+    }
+    if (matchedByPhone) {
+      const platName = matchedByPhone.platform === 'telegram' ? 'تلگرام' : matchedByPhone.platform === 'rubika' ? 'روبیکا' : 'بله';
+      return {
+        resolvedId: matchedByPhone.chatId,
+        effectivePlatform: matchedByPhone.platform,
+        resolutionReason: `یافت شده از شماره همراه ${normPhone} (${matchedByPhone.fullName || matchedByPhone.phone}) در ${platName}`
+      };
+    }
+    const platName = platform === 'telegram' ? 'تلگرام' : platform === 'rubika' ? 'روبیکا' : 'بله';
+    return {
+      resolvedId: null,
+      effectivePlatform: platform,
+      resolutionReason: `شماره ${normPhone} هنوز در ربات ${platName} استارت نزده است. برای اتصال، کاربر کافیست دکمه /start را در ربات بزند.`
+    };
   }
 
-  // If it's a Telegram public channel or public supergroup (starts with @ and no spaces)
-  if (platform === 'telegram' && cleaned.startsWith('@') && !cleaned.includes(' ')) {
-    return { resolvedId: cleaned };
+  // 4. If it's a negative or standard numeric ID (e.g. 123456789 or -100123456789 for groups)
+  if (/^-?\d+$/.test(cleaned)) {
+    return {
+      resolvedId: cleaned,
+      effectivePlatform: platform
+    };
   }
 
+  // 5. If it's a Rubika chat ID / GUID (e.g. b0..., u0..., c0..., g0... or alphanumeric identifier)
+  if (platform === 'rubika' && /^[a-zA-Z0-9_-]{8,}$/.test(cleaned)) {
+    return {
+      resolvedId: cleaned,
+      effectivePlatform: 'rubika'
+    };
+  }
+
+  // 6. If it's a public channel or public supergroup (starts with @ and no spaces)
+  if ((platform === 'telegram' || platform === 'rubika') && cleaned.startsWith('@') && !cleaned.includes(' ')) {
+    return {
+      resolvedId: cleaned,
+      effectivePlatform: platform
+    };
+  }
+
+  const platName = platform === 'telegram' ? 'تلگرام' : platform === 'rubika' ? 'روبیکا' : 'بله';
   return {
     resolvedId: null,
-    resolutionReason: `کاربر «${cleaned}» تاکنون در ربات دکمه /start را نزده است. طبق قوانین پیام‌رسان‌ها، ربات‌ها اجازه شروع مکالمه بدون استارت کاربر را ندارند.`
+    effectivePlatform: platform,
+    resolutionReason: `کاربر «${cleaned}» تاکنون در ربات ${platName} دکمه /start را نزده است. طبق قوانین پیام‌رسان‌ها، ربات‌ها اجازه شروع مکالمه بدون استارت کاربر را ندارند.`
   };
 }
 
@@ -290,7 +344,7 @@ async function sendPhotoMessage(
       await sendTextMessage(platform, token, chatId, captionText);
     }
   } catch (photoErr: any) {
-    console.warn('sendPhoto encountered error, automatically falling back to text message:', photoErr?.response?.data || photoErr.message);
+    console.log('sendPhoto notice, automatically falling back to text message:', photoErr?.response?.data?.description || photoErr.message);
     // Graceful fallback: Deliver message text so invoice or reminder is never lost
     await sendTextMessage(platform, token, chatId, captionText);
   }
@@ -415,7 +469,7 @@ async function handleTelegramUpdate(token: string, update: any) {
       reply_markup: replyMarkup
     });
   } catch (err: any) {
-    console.error('Error handling Telegram update:', err?.response?.data || err.message);
+    console.log('Notice handling Telegram update:', err?.response?.data?.description || err.message);
   }
 }
 
@@ -438,7 +492,7 @@ async function startTelegramPolling(token: string) {
     });
     console.log('Telegram webhook verified clear.');
   } catch (e: any) {
-    console.warn('Notice: deleteWebhook response:', e?.response?.data || e.message);
+    console.log('Notice: deleteWebhook response:', e?.response?.data?.description || e.message);
   }
 
   telegramPollingActive = true;
@@ -574,7 +628,7 @@ async function handleBaleUpdate(token: string, update: any) {
       reply_markup: replyMarkup
     });
   } catch (err: any) {
-    console.error('Error handling Bale update:', err?.response?.data || err.message);
+    console.log('Notice handling Bale update:', err?.response?.data?.description || err.message);
   }
 }
 
@@ -617,6 +671,81 @@ async function startBalePolling(token: string) {
 }
 
 // ----------------------------------------------------
+// RUBIKA POLLING CONTROLLER
+// ----------------------------------------------------
+let rubikaPollingActive = false;
+let currentRubikaToken = '';
+let lastRubikaOffsetId = '';
+
+async function handleRubikaUpdate(token: string, update: any) {
+  const chatId = update.chat_id;
+  if (!chatId) return;
+
+  const cleanChatId = String(chatId);
+  const msgText = (update.new_message?.text || '').trim();
+  const senderId = update.new_message?.sender_id;
+
+  // Record user in registry
+  recordBotUser({
+    chatId: cleanChatId,
+    platform: 'rubika',
+    username: senderId,
+    fullName: 'کاربر روبیکا'
+  });
+
+  try {
+    if (msgText.startsWith('/start') || update.type === 'StartedBot') {
+      const welcomeText = buildWelcomeMessage(cachedSettings, 'کاربر گرامی روبیکا', cleanChatId);
+      await axios.post(`https://botapi.rubika.ir/v3/${token}/sendMessage`, {
+        chat_id: cleanChatId,
+        text: welcomeText
+      }, { timeout: 10000 });
+    }
+  } catch (err: any) {
+    console.log('Notice handling Rubika update:', err?.response?.data || err.message);
+  }
+}
+
+async function startRubikaPolling(token: string) {
+  const cleanTok = cleanToken(token);
+  if (!cleanTok) return;
+
+  if (currentRubikaToken === cleanTok && rubikaPollingActive) {
+    return;
+  }
+
+  rubikaPollingActive = false;
+  currentRubikaToken = cleanTok;
+  await new Promise(r => setTimeout(r, 600));
+
+  rubikaPollingActive = true;
+  console.log(`Starting Rubika polling for token [${cleanTok.slice(0, 8)}...]`);
+
+  (async () => {
+    while (rubikaPollingActive && currentRubikaToken === cleanTok) {
+      try {
+        const payload: any = { limit: 10 };
+        if (lastRubikaOffsetId) {
+          payload.offset_id = lastRubikaOffsetId;
+        }
+        const res = await axios.post(`https://botapi.rubika.ir/v3/${cleanTok}/getUpdates`, payload, { timeout: 15000 });
+
+        if (res.data?.status === 'OK' && Array.isArray(res.data.data?.updates)) {
+          for (const update of res.data.data.updates) {
+            await handleRubikaUpdate(cleanTok, update);
+          }
+          if (res.data.data.next_offset_id) {
+            lastRubikaOffsetId = res.data.data.next_offset_id;
+          }
+        }
+      } catch (err: any) {
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
+  })();
+}
+
+// ----------------------------------------------------
 // EXPRESS SERVER & API ROUTES
 // ----------------------------------------------------
 async function startServer() {
@@ -628,74 +757,134 @@ async function startServer() {
 
   // Initialize bot listeners
   if (cachedSettings?.telegramToken) {
-    startTelegramPolling(cachedSettings.telegramToken).catch(console.error);
+    startTelegramPolling(cachedSettings.telegramToken).catch(err => console.warn('Telegram polling init notice:', err.message));
   }
   if (cachedSettings?.baleToken) {
-    startBalePolling(cachedSettings.baleToken).catch(console.error);
+    startBalePolling(cachedSettings.baleToken).catch(err => console.warn('Bale polling init notice:', err.message));
+  }
+  if (cachedSettings?.rubikaToken) {
+    startRubikaPolling(cachedSettings.rubikaToken).catch(err => console.warn('Rubika polling init notice:', err.message));
   }
 
   // API Route: Send message (Push from App to Client)
   app.post('/api/send-message', async (req, res) => {
-    const { platform, token, chatId, message, text, imageBase64 } = req.body;
+    let { platform, token, chatId, message, text, imageBase64 } = req.body;
     const finalMessage = (message || text || '').trim();
-    const cleanTok = cleanToken(token);
+    let cleanTok = cleanToken(token);
 
-    if (!cleanTok || !chatId || !finalMessage) {
-      return res.status(400).json({ 
+    if (!chatId || !finalMessage) {
+      return res.status(200).json({ 
+        success: false,
         ok: false,
         error: 'اطلاعات ناقص است', 
-        details: 'توکن، شناسه چت و متن پیام الزامی می‌باشند.' 
+        details: 'شناسه چت و متن پیام الزامی می‌باشند.'
       });
     }
 
-    // Resolve Chat ID (e.g. converts username or phone into numeric Chat ID if registered)
-    const { resolvedId, resolutionReason } = resolveChatId(chatId, platform);
+    // Resolve Chat ID and detect effective platform (e.g. converts username or phone into numeric Chat ID if registered)
+    const { resolvedId, effectivePlatform, resolutionReason } = resolveChatId(chatId, platform);
     if (!resolvedId) {
-      console.warn(`Unresolved chat ID for ${platform}: [${chatId}] - ${resolutionReason}`);
-      return res.status(400).json({
+      console.log(`Unresolved chat ID notice for ${platform}: [${chatId}] - ${resolutionReason}`);
+      return res.status(200).json({
+        success: false,
         ok: false,
         error: 'شناسه چت قابل استفاده نیست',
-        details: resolutionReason || `ارسال مستقیم به «${chatId}» امکان‌پذیر نیست. مخاطب باید حداقل یک‌بار در ربات دکمه /start را زده باشد یا شناسه عددی (Chat ID) او ثبت شود.`,
-        errorCode: 400
+        details: resolutionReason || `ارسال مستقیم به «${chatId}» امکان‌پذیر نیست. مخاطب باید حداقل یک‌بار در ربات دکمه /start را زده باشد یا شناسه عددی (Chat ID) او ثبت شود.`
+      });
+    }
+
+    // If target user is detected on another platform (e.g. registered on Bale while request was marked Telegram):
+    let targetPlatform = platform;
+    if (effectivePlatform && effectivePlatform !== platform) {
+      if (effectivePlatform === 'bale' && cachedSettings?.baleToken) {
+        targetPlatform = 'bale';
+        cleanTok = cleanToken(cachedSettings.baleToken);
+      } else if (effectivePlatform === 'telegram' && cachedSettings?.telegramToken) {
+        targetPlatform = 'telegram';
+        cleanTok = cleanToken(cachedSettings.telegramToken);
+      } else if (effectivePlatform === 'rubika' && cachedSettings?.rubikaToken) {
+        targetPlatform = 'rubika';
+        cleanTok = cleanToken(cachedSettings.rubikaToken);
+      }
+    }
+
+    // Fallback to cached token if not supplied
+    if (!cleanTok) {
+      if (targetPlatform === 'telegram' && cachedSettings?.telegramToken) {
+        cleanTok = cleanToken(cachedSettings.telegramToken);
+      } else if (targetPlatform === 'bale' && cachedSettings?.baleToken) {
+        cleanTok = cleanToken(cachedSettings.baleToken);
+      } else if (targetPlatform === 'rubika' && cachedSettings?.rubikaToken) {
+        cleanTok = cleanToken(cachedSettings.rubikaToken);
+      }
+    }
+
+    if (!cleanTok) {
+      const platName = targetPlatform === 'bale' ? 'بله' : targetPlatform === 'rubika' ? 'روبیکا' : 'تلگرام';
+      return res.status(200).json({
+        success: false,
+        ok: false,
+        error: `توکن ربات ${platName} تنظیم نشده است`,
+        details: 'لطفاً ابتدا در بخش تنظیمات، توکن ربات مربوطه را ثبت فرمایید.'
       });
     }
 
     try {
-      if (platform === 'telegram' || platform === 'bale') {
+      if (targetPlatform === 'telegram' || targetPlatform === 'bale') {
         if (imageBase64) {
-          await sendPhotoMessage(platform, cleanTok, resolvedId, imageBase64, finalMessage);
+          await sendPhotoMessage(targetPlatform, cleanTok, resolvedId, imageBase64, finalMessage);
         } else {
-          await sendTextMessage(platform, cleanTok, resolvedId, finalMessage);
+          await sendTextMessage(targetPlatform, cleanTok, resolvedId, finalMessage);
         }
-      } else if (platform === 'rubika') {
-        console.log(`Sending Rubika message to ${resolvedId}: ${finalMessage}`);
+      } else if (targetPlatform === 'rubika') {
+        const rubikaRes = await axios.post(`https://botapi.rubika.ir/v3/${cleanTok}/sendMessage`, {
+          chat_id: resolvedId,
+          text: finalMessage
+        }, { timeout: 15000 });
+
+        if (rubikaRes.data?.status !== 'OK') {
+          const st = rubikaRes.data?.status || 'خطا در ارسال پیام روبیکا';
+          if (st === 'INVALID_INPUT') {
+            throw new Error('INVALID_INPUT: شناسه چت در روبیکا نامعتبر است یا مخاطب هنوز در ربات روبیکا /start نزده است.');
+          }
+          throw new Error(`خطای روبیکا: ${st}`);
+        }
       } else {
-        return res.status(400).json({ ok: false, error: 'پلتفرم پشتیبانی نشده است' });
+        return res.status(200).json({ success: false, ok: false, error: 'پلتفرم پشتیبانی نشده است' });
       }
 
-      res.json({ success: true, resolvedChatId: resolvedId });
+      res.json({
+        success: true,
+        ok: true,
+        resolvedChatId: resolvedId,
+        actualPlatform: targetPlatform,
+        resolutionReason
+      });
     } catch (error: any) {
       const apiData = error?.response?.data;
-      console.error('Bot sending error:', apiData || error.message);
+      const desc = apiData?.description || error.message || '';
+      console.log(`Bot message notice (${targetPlatform}): ${desc}`);
 
       let friendlyError = 'خطا در ارسال پیام';
-      const desc = apiData?.description || error.message || '';
 
-      if (desc.includes('chat not found') || desc.includes('no such group or user')) {
-        friendlyError = 'شناسه چت یافت نشد (Chat not found)';
+      if (desc.includes('chat not found') || desc.includes('no such group or user') || desc.includes('PEER_ID_INVALID') || desc.includes('INVALID_INPUT')) {
+        const platName = targetPlatform === 'bale' ? 'بله' : targetPlatform === 'rubika' ? 'روبیکا' : 'تلگرام';
+        friendlyError = `شناسه چت یافت نشد (کاربر هنوز در ربات ${platName} /start نزده است)`;
       } else if (desc.includes('MEDIA_CAPTION_TOO_LONG')) {
         friendlyError = 'متن توضیحات تصویر بیش از حد مجاز است';
       } else if (desc.includes('bot was blocked by the user')) {
         friendlyError = 'ربات توسط این کاربر مسدود (Block) شده است';
       } else if (desc.includes('user is deactivated')) {
         friendlyError = 'حساب کاربری مخاطب غیرفعال شده است';
+      } else if (desc.includes('Unauthorized') || desc.includes('Not Found')) {
+        friendlyError = 'توکن ربات نامعتبر است. لطفاً توکن را در تنظیمات بررسی فرمایید.';
       }
 
-      res.status(400).json({
+      res.status(200).json({
+        success: false,
         ok: false,
         error: friendlyError,
-        details: desc,
-        errorCode: apiData?.error_code || 400
+        details: desc
       });
     }
   });
@@ -708,26 +897,65 @@ async function startServer() {
     });
   });
 
+  // API Route: Register or link a Bot User manually
+  app.post('/api/bot/register-user', (req, res) => {
+    try {
+      const { chatId, platform, phone, fullName, username } = req.body;
+      if (!chatId) {
+        return res.status(200).json({ success: false, error: 'شناسه چت الزامی است' });
+      }
+      const cleanId = normalizeDigits(String(chatId)).trim();
+      const cleanPlatform = (platform === 'bale' ? 'bale' : platform === 'rubika' ? 'rubika' : 'telegram') as 'telegram' | 'bale' | 'rubika';
+      const cleanPhone = phone ? normalizePhone(phone) : undefined;
+      const cleanUsername = username ? String(username).replace(/^@/, '').trim() : undefined;
+
+      const existingIdx = botUsers.findIndex(u => u.chatId === cleanId && u.platform === cleanPlatform);
+      const userObj: BotUser = {
+        chatId: cleanId,
+        platform: cleanPlatform,
+        username: cleanUsername,
+        phone: cleanPhone,
+        fullName: fullName ? String(fullName).trim() : (cleanUsername || 'کاربر ثبت شده'),
+        lastActive: Date.now()
+      };
+
+      if (existingIdx >= 0) {
+        botUsers[existingIdx] = { ...botUsers[existingIdx], ...userObj };
+      } else {
+        botUsers.unshift(userObj);
+      }
+
+      saveBotUsers();
+      res.json({ success: true, user: userObj });
+    } catch (e: any) {
+      console.warn('Error registering user manually:', e.message);
+      res.status(200).json({ success: false, error: e.message });
+    }
+  });
+
   // API Route: Sync Settings from React to Server & Restart Bot Polling
   app.post('/api/bot/sync-settings', async (req, res) => {
     try {
       const { settings } = req.body;
       if (!settings) {
-        return res.status(400).json({ error: 'No settings provided' });
+        return res.json({ success: false, error: 'No settings provided' });
       }
 
       saveCachedSettings(settings);
 
       if (settings.telegramToken && settings.telegramToken.trim()) {
-        startTelegramPolling(settings.telegramToken).catch(console.error);
+        startTelegramPolling(settings.telegramToken).catch(err => console.log('Telegram restart notice:', err.message));
       }
       if (settings.baleToken && settings.baleToken.trim()) {
-        startBalePolling(settings.baleToken).catch(console.error);
+        startBalePolling(settings.baleToken).catch(err => console.log('Bale restart notice:', err.message));
+      }
+      if (settings.rubikaToken && settings.rubikaToken.trim()) {
+        startRubikaPolling(settings.rubikaToken).catch(err => console.log('Rubika restart notice:', err.message));
       }
 
       res.json({ success: true, message: 'تنظیمات ذخیره و وضعیت ربات‌ها به‌روزرسانی شد' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.json({ success: false, error: err.message });
     }
   });
 
@@ -737,27 +965,29 @@ async function startServer() {
       const { token, platform = 'telegram' } = req.body;
       const cleanTok = cleanToken(token);
       if (!cleanTok) {
-        return res.status(400).json({ error: 'Token is required' });
+        return res.json({ success: false, error: 'Token is required' });
       }
 
       let deleteRes: any = null;
       let webhookInfo: any = null;
 
       if (platform === 'telegram') {
-        const infoRes = await axios.get(`https://api.telegram.org/bot${cleanTok}/getWebhookInfo`);
-        webhookInfo = infoRes.data?.result;
+        try {
+          const infoRes = await axios.get(`https://api.telegram.org/bot${cleanTok}/getWebhookInfo`, { timeout: 10000 });
+          webhookInfo = infoRes.data?.result;
+        } catch (_) {}
 
         const del = await axios.post(`https://api.telegram.org/bot${cleanTok}/deleteWebhook`, {
           drop_pending_updates: false
-        });
+        }, { timeout: 10000 });
         deleteRes = del.data;
 
         // Restart polling right away
-        startTelegramPolling(cleanTok).catch(console.error);
+        startTelegramPolling(cleanTok).catch(err => console.log('Telegram polling restart notice:', err.message));
       } else if (platform === 'bale') {
-        const del = await axios.post(`https://tapi.bale.ai/bot${cleanTok}/deleteWebhook`);
+        const del = await axios.post(`https://tapi.bale.ai/bot${cleanTok}/deleteWebhook`, {}, { timeout: 10000 });
         deleteRes = del.data;
-        startBalePolling(cleanTok).catch(console.error);
+        startBalePolling(cleanTok).catch(err => console.log('Bale polling restart notice:', err.message));
       }
 
       res.json({
@@ -767,36 +997,80 @@ async function startServer() {
         telegramResponse: deleteRes
       });
     } catch (err: any) {
-      console.error('Clear webhook error:', err?.response?.data || err.message);
-      res.status(500).json({
+      console.log('Clear webhook notice:', err?.response?.data?.description || err.message);
+      res.status(200).json({
+        success: false,
         error: 'خطا در پاکسازی وبهوک',
         details: err?.response?.data?.description || err.message
       });
     }
   });
 
-  // API Route: Check Bot Status
+  // API Route: Check Bot Status (Supports Telegram, Bale and Rubika)
   app.get('/api/bot/status', async (req, res) => {
+    const requestedPlatform = (req.query.platform as string) || 'telegram';
+    const token = (req.query.token as string) || (
+      requestedPlatform === 'bale'
+        ? cachedSettings?.baleToken
+        : requestedPlatform === 'rubika'
+          ? cachedSettings?.rubikaToken
+          : cachedSettings?.telegramToken
+    );
+    const cleanTok = cleanToken(token);
+
+    if (!cleanTok) {
+      return res.json({ configured: false, platform: requestedPlatform });
+    }
+
     try {
-      const token = (req.query.token as string) || cachedSettings?.telegramToken;
-      const cleanTok = cleanToken(token);
-      if (!cleanTok) {
-        return res.json({ configured: false });
+      if (requestedPlatform === 'bale') {
+        const meRes = await axios.get(`https://tapi.bale.ai/bot${cleanTok}/getMe`, { timeout: 10000 });
+        return res.json({
+          configured: true,
+          platform: 'bale',
+          bot: meRes.data?.result,
+          pollingActive: balePollingActive && currentBaleToken === cleanTok,
+          connectedUsersCount: botUsers.filter(u => u.platform === 'bale').length
+        });
+      } else if (requestedPlatform === 'rubika') {
+        const meRes = await axios.post(`https://botapi.rubika.ir/v3/${cleanTok}/getMe`, {}, { timeout: 10000 });
+        if (meRes.data?.status === 'OK') {
+          return res.json({
+            configured: true,
+            platform: 'rubika',
+            bot: meRes.data.data?.bot,
+            pollingActive: rubikaPollingActive && currentRubikaToken === cleanTok,
+            connectedUsersCount: botUsers.filter(u => u.platform === 'rubika').length
+          });
+        } else {
+          return res.json({
+            configured: false,
+            platform: 'rubika',
+            error: meRes.data?.status || 'توکن روبیکا پاسخ معتبر نداد'
+          });
+        }
+      } else {
+        const meRes = await axios.get(`https://api.telegram.org/bot${cleanTok}/getMe`, { timeout: 10000 });
+        let webhookInfo: any = null;
+        try {
+          const webhookRes = await axios.get(`https://api.telegram.org/bot${cleanTok}/getWebhookInfo`, { timeout: 10000 });
+          webhookInfo = webhookRes.data?.result;
+        } catch (_) {}
+
+        return res.json({
+          configured: true,
+          platform: 'telegram',
+          bot: meRes.data?.result,
+          webhook: webhookInfo,
+          pollingActive: telegramPollingActive && currentTelegramToken === cleanTok,
+          connectedUsersCount: botUsers.filter(u => u.platform === 'telegram').length
+        });
       }
-
-      const meRes = await axios.get(`https://api.telegram.org/bot${cleanTok}/getMe`);
-      const webhookRes = await axios.get(`https://api.telegram.org/bot${cleanTok}/getWebhookInfo`);
-
-      res.json({
-        configured: true,
-        bot: meRes.data?.result,
-        webhook: webhookRes.data?.result,
-        pollingActive: telegramPollingActive && currentTelegramToken === cleanTok,
-        connectedUsersCount: botUsers.filter(u => u.platform === 'telegram').length
-      });
     } catch (err: any) {
-      res.status(500).json({
+      console.log(`Bot status notice for ${requestedPlatform}:`, err?.response?.data?.description || err.message);
+      res.json({
         configured: false,
+        platform: requestedPlatform,
         error: err?.response?.data?.description || err.message
       });
     }

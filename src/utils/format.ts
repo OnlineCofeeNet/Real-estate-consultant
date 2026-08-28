@@ -121,3 +121,55 @@ export const formatTemplateMessage = (
   return res;
 };
 
+export const createInvoiceMessengerMessage = (
+  contract: any,
+  settings?: Settings | null,
+  isReprint: boolean = false
+): string => {
+  const isRent = contract.type === 'rent';
+  const contractTypeLabel = isRent ? 'رهن و اجاره (موجر و مستأجر)' : 'خرید و فروش';
+  
+  let msg = '';
+  if (isReprint) {
+    msg += `🔴 نسخه چاپ مجدد / فاکتور المثنی\n\n`;
+  }
+  
+  msg += `📄 صورتحساب رسمی خدمات املاک ${isReprint ? '(چاپ مجدد)' : ''}\n`;
+  if (settings?.agencyName) {
+    msg += `🏢 ${settings.agencyName}\n`;
+  }
+  msg += `─────────────────────────\n`;
+  msg += `🔢 شماره قرارداد: ${toPersianDigits(contract.contractNumber || '-')}\n`;
+  msg += `📋 نوع معامله: ${contractTypeLabel}\n`;
+  msg += `📅 تاریخ انجام قرارداد: ${toPersianDigits(contract.date || '-')}\n`;
+  if (contract.endDate) {
+    msg += `⏳ تاریخ اتمام قرارداد (۱ ساله): ${toPersianDigits(contract.endDate)}\n`;
+  }
+  if (contract.renewalDate) {
+    msg += `🔄 تمدید شده در تاریخ: ${toPersianDigits(contract.renewalDate)} (دور ${toPersianDigits(contract.renewedCount || 1)})\n`;
+  }
+  msg += `\n`;
+  msg += `👤 ${contract.party1Role || 'طرف اول'}: ${contract.party1?.fullName || '-'}\n`;
+  msg += `👤 ${contract.party2Role || 'طرف دوم'}: ${contract.party2?.fullName || '-'}\n`;
+  msg += `\n`;
+  msg += `💰 ارقام و مبالغ معامله:\n`;
+  if (isRent) {
+    msg += `• ودیعه / رهن: ${formatCurrency(contract.price || 0)}\n`;
+    if (contract.rent) {
+      const dueInfo = contract.rentDueDay ? ` (موعد: روز ${toPersianDigits(contract.rentDueDay)} هر ماه)` : '';
+      msg += `• اجاره بها ماهیانه: ${formatCurrency(contract.rent)}${dueInfo}\n`;
+    }
+  } else {
+    msg += `• ثمن معامله: ${formatCurrency(contract.price || 0)}\n`;
+  }
+  msg += `• حق کمیسیون: ${formatCurrency(contract.commission || 0)}\n`;
+  msg += `• مالیات بر ارزش افزوده: ${formatCurrency(contract.tax || 0)}\n`;
+  msg += `• کل مبلغ قابل پرداخت: ${formatCurrency(contract.totalPayable || 0)}\n`;
+  
+  if (isReprint) {
+    msg += `\n⚠️ توجه: این پیام به عنوان «نسخه چاپ مجدد / فاکتور المثنی» مجدداً از سامانه ارسال گردیده است.\n`;
+  }
+
+  return appendAgencySignature(msg, settings);
+};
+

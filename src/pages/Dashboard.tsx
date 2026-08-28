@@ -137,24 +137,29 @@ const Dashboard = () => {
 
         // ارسال واقعی به اندپوینت بک‌اند در صورت موجود بودن توکن
         if (token && targetChatId) {
-          await axios.post('/api/send-message', {
+          const res = await axios.post('/api/send-message', {
             platform: messenger,
             token,
             chatId: targetChatId,
             message: log.message
           }, { timeout: 8000 });
-        }
 
-        // علامت‌گذاری به عنوان موفق در دیتابیس لوکال
-        if (log.id) {
-          await db.messageLogs.update(log.id, { 
-            status: 'sent', 
-            date: Date.now() 
-          });
-          successCount++;
+          if (res.data?.success) {
+            if (log.id) {
+              await db.messageLogs.update(log.id, { 
+                status: 'sent', 
+                date: Date.now() 
+              });
+              successCount++;
+            }
+          } else {
+            failCount++;
+          }
+        } else {
+          failCount++;
         }
       } catch (err: any) {
-        console.warn('Resend message error:', err?.response?.data || err.message);
+        console.log('Resend message notice:', err?.response?.data?.details || err?.response?.data?.error || err.message);
         failCount++;
       }
     }
@@ -164,10 +169,12 @@ const Dashboard = () => {
     setIsResending(false);
 
     toast.dismiss(toastId);
-    if (failCount === 0) {
+    if (successCount > 0 && failCount === 0) {
       toast.success(`${toPersianDigits(successCount)} پیام با موفقیت ارسال مجدد شد.`);
+    } else if (successCount > 0 && failCount > 0) {
+      toast.success(`${toPersianDigits(successCount)} پیام ارسال شد (${toPersianDigits(failCount)} مورد ناموفق به دلیل عدم ثبت‌نام کاربر در ربات).`);
     } else {
-      toast.success(`${toPersianDigits(successCount)} پیام با موفقیت ارسال شد (${toPersianDigits(failCount)} خطا).`);
+      toast.error('ارسال پیام‌ها ناموفق بود. کاربر باید ابتدا در ربات /start را بزند یا شناسه عددی او وارد شود.');
     }
   };
 

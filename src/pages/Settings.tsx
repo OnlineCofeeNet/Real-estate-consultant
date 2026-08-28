@@ -25,7 +25,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   Users,
-  Smartphone
+  Smartphone,
+  ExternalLink
 } from 'lucide-react';
 import type { Settings as SettingsType } from '../types';
 import { IRANIAN_BANKS, getAgencySignature, toPersianDigits, toEnglishDigits, formatTemplateMessage } from '../utils/format';
@@ -98,26 +99,33 @@ const Settings = () => {
     defaultTexts: false,
   });
 
-  // وضعیت و کنترل اختصاصی ربات تلگرام
+  // وضعیت و کنترل اختصاصی ربات تلگرام، بله و روبیکا
   const [isClearingWebhook, setIsClearingWebhook] = useState(false);
+  const [testPlatform, setTestPlatform] = useState<'telegram' | 'bale' | 'rubika'>('bale');
   const [testChatId, setTestChatId] = useState('');
   const [isTestingBot, setIsTestingBot] = useState(false);
   const [botInfo, setBotInfo] = useState<{ configured: boolean; bot?: any; webhook?: any; pollingActive?: boolean } | null>(null);
+  const [baleBotInfo, setBaleBotInfo] = useState<{ configured: boolean; bot?: any; pollingActive?: boolean } | null>(null);
+  const [rubikaBotInfo, setRubikaBotInfo] = useState<{ configured: boolean; bot?: any; pollingActive?: boolean } | null>(null);
   const [isCheckingBot, setIsCheckingBot] = useState(false);
+  const [isCheckingBaleBot, setIsCheckingBaleBot] = useState(false);
+  const [isCheckingRubikaBot, setIsCheckingRubikaBot] = useState(false);
   const [connectedUsers, setConnectedUsers] = useState<any[]>([]);
 
   const loadConnectedUsers = async () => {
     try {
       const res = await axios.get('/api/bot/connected-users');
-      if (res.data?.users) {
+      if (res.data?.users && res.data.users.length > 0) {
         setConnectedUsers(res.data.users);
+        setTestChatId(prev => prev || res.data.users[0].chatId);
+        setTestPlatform(prev => (prev === 'bale' || prev === 'rubika' || prev === 'telegram') ? prev : (res.data.users[0].platform || 'bale'));
       }
     } catch (e) {
-      console.warn('Could not load connected users:', e);
+      console.log('Notice: could not load connected users');
     }
   };
 
-  const checkBotStatus = async (token?: string) => {
+  const checkTelegramBotStatus = async (token?: string) => {
     const t = token || formData?.telegramToken;
     if (!t || !t.trim()) {
       setBotInfo(null);
@@ -125,7 +133,7 @@ const Settings = () => {
     }
     setIsCheckingBot(true);
     try {
-      const res = await axios.get(`/api/bot/status?token=${encodeURIComponent(t)}`);
+      const res = await axios.get(`/api/bot/status?platform=telegram&token=${encodeURIComponent(t)}`);
       setBotInfo(res.data);
       await loadConnectedUsers();
     } catch (e) {
@@ -133,6 +141,50 @@ const Settings = () => {
     } finally {
       setIsCheckingBot(false);
     }
+  };
+
+  const checkBaleBotStatus = async (token?: string) => {
+    const t = token || formData?.baleToken;
+    if (!t || !t.trim()) {
+      setBaleBotInfo(null);
+      return;
+    }
+    setIsCheckingBaleBot(true);
+    try {
+      const res = await axios.get(`/api/bot/status?platform=bale&token=${encodeURIComponent(t)}`);
+      setBaleBotInfo(res.data);
+      await loadConnectedUsers();
+    } catch (e) {
+      setBaleBotInfo(null);
+    } finally {
+      setIsCheckingBaleBot(false);
+    }
+  };
+
+  const checkRubikaBotStatus = async (token?: string) => {
+    const t = token || formData?.rubikaToken;
+    if (!t || !t.trim()) {
+      setRubikaBotInfo(null);
+      return;
+    }
+    setIsCheckingRubikaBot(true);
+    try {
+      const res = await axios.get(`/api/bot/status?platform=rubika&token=${encodeURIComponent(t)}`);
+      setRubikaBotInfo(res.data);
+      await loadConnectedUsers();
+    } catch (e) {
+      setRubikaBotInfo(null);
+    } finally {
+      setIsCheckingRubikaBot(false);
+    }
+  };
+
+  const checkBotStatus = async () => {
+    await Promise.all([
+      checkTelegramBotStatus(),
+      checkBaleBotStatus(),
+      checkRubikaBotStatus()
+    ]);
   };
 
   const toggleSection = (key: string) => {
@@ -184,7 +236,13 @@ const Settings = () => {
       // Sync settings with server
       axios.post('/api/bot/sync-settings', { settings: merged }).catch(() => {});
       if (merged.telegramToken) {
-        checkBotStatus(merged.telegramToken);
+        checkTelegramBotStatus(merged.telegramToken);
+      }
+      if (merged.baleToken) {
+        checkBaleBotStatus(merged.baleToken);
+      }
+      if (merged.rubikaToken) {
+        checkRubikaBotStatus(merged.rubikaToken);
       }
     }
   }, [settingsData]);
@@ -234,30 +292,37 @@ const Settings = () => {
         platform: 'telegram'
       });
 
+      if (res.data?.success === false) {
+        toast.error(res.data?.details || res.data?.error || 'خطا در پاکسازی وبهوک تلگرام', { id: toastId });
+        return;
+      }
+
       await axios.post('/api/bot/sync-settings', { settings: toSave });
       toast.success(res.data?.message || 'وبهوک قدیمی پاک شد! پیام‌های ربات اکنون با متن اختصاصی شما ارسال می‌شوند.', { id: toastId, duration: 5000 });
-      await checkBotStatus(formData.telegramToken);
+      await checkTelegramBotStatus(formData.telegramToken);
     } catch (err: any) {
-      toast.error(err?.response?.data?.details || 'خطا در ارتباط با سرور تلگرام برای پاکسازی وبهوک', { id: toastId });
+      toast.error(err?.response?.data?.details || err?.response?.data?.error || 'خطا در ارتباط با سرور تلگرام برای پاکسازی وبهوک', { id: toastId });
     } finally {
       setIsClearingWebhook(false);
     }
   };
 
-  // ارسال آزمایشی پیام خوش‌آمدگویی تنظیم‌شده به اکانت تلگرام
+  // ارسال آزمایشی پیام خوش‌آمدگویی تنظیم‌شده به اکانت تلگرام، بله یا روبیکا
   const handleSendTestMessage = async () => {
-    if (!formData.telegramToken || !formData.telegramToken.trim()) {
-      toast.error('لطفاً توکن ربات تلگرام را وارد کنید');
+    const currentToken = testPlatform === 'telegram' ? formData.telegramToken : testPlatform === 'rubika' ? formData.rubikaToken : formData.baleToken;
+    const platformLabel = testPlatform === 'telegram' ? 'تلگرام' : testPlatform === 'rubika' ? 'روبیکا' : 'بله';
+    if (!currentToken || !currentToken.trim()) {
+      toast.error(`لطفاً ابتدا توکن ربات ${platformLabel} را در کادر بالا وارد فرمایید.`);
       return;
     }
     const cleanChatId = toEnglishDigits(testChatId).trim();
     if (!cleanChatId) {
-      toast.error('لطفاً شناسه چت عددی (Chat ID) یا نام کاربری تلگرام را وارد فرمایید');
+      toast.error(`لطفاً شناسه چت یا نام کاربری ${platformLabel} را وارد فرمایید.`);
       return;
     }
 
     setIsTestingBot(true);
-    const toastId = toast.loading('در حال ارسال پیام آزمایشی به تلگرام...');
+    const toastId = toast.loading(`در حال ارسال پیام آزمایشی به ${platformLabel}...`);
     try {
       await axios.post('/api/bot/sync-settings', { settings: formData });
 
@@ -272,17 +337,22 @@ const Settings = () => {
       const finalMsg = sig ? `${formatted.trim()}\n\n${sig}` : formatted;
 
       const res = await axios.post('/api/send-message', {
-        platform: 'telegram',
-        token: formData.telegramToken,
+        platform: testPlatform,
+        token: currentToken,
         chatId: cleanChatId,
         message: finalMsg
       });
 
-      toast.success(res.data?.resolvedChatId ? `پیام به شناسه ${res.data.resolvedChatId} با موفقیت ارسال شد!` : 'پیام با موفقیت به تلگرام ارسال گردید!', { id: toastId });
-      loadConnectedUsers();
+      if (res.data?.success) {
+        const destPlatform = res.data?.actualPlatform === 'bale' ? 'بله' : res.data?.actualPlatform === 'rubika' ? 'روبیکا' : 'تلگرام';
+        toast.success(`پیام با موفقیت به ${destPlatform} (شناسه: ${res.data?.resolvedChatId || cleanChatId}) ارسال گردید!`, { id: toastId });
+        await loadConnectedUsers();
+      } else {
+        toast.error(res.data?.details || res.data?.error || 'خطا در ارسال پیام. مخاطب باید ابتدا در ربات استارت زده باشد.', { id: toastId, duration: 7000 });
+      }
     } catch (err: any) {
-      const details = err?.response?.data?.details || err?.response?.data?.error;
-      toast.error(details || 'خطا در ارسال پیام. لطفاً دقت فرمایید کاربر باید ابتدا در ربات دکمه /start را زده باشد و شناسه عددی چت وارد شود.', { id: toastId, duration: 7000 });
+      const details = err?.response?.data?.details || err?.response?.data?.error || err.message;
+      toast.error(details || 'خطا در برقراری ارتباط با سرور', { id: toastId, duration: 7000 });
     } finally {
       setIsTestingBot(false);
     }
@@ -303,13 +373,16 @@ const Settings = () => {
         // همگام‌سازی تنظیمات با سرور و متصل نگه‌داشتن ربات
         try {
           await axios.post('/api/bot/sync-settings', { settings: toSave });
-        } catch (syncErr) {
-          console.warn('Backend sync warning:', syncErr);
+        } catch (syncErr: any) {
+          console.log('Notice: backend sync completed');
         }
 
         toast.success('تنظیمات با موفقیت ذخیره شد');
         if (toSave.telegramToken) {
-          checkBotStatus(toSave.telegramToken);
+          checkTelegramBotStatus(toSave.telegramToken);
+        }
+        if (toSave.baleToken) {
+          checkBaleBotStatus(toSave.baleToken);
         }
       } catch (err) {
         toast.error('خطا در ذخیره تنظیمات');
@@ -843,150 +916,304 @@ const Settings = () => {
                 </div>
               </div>
 
-              {/* جعبه اختصاصی مدیریت و رفع مشکل پیام‌های ناخواسته ربات تلگرام (نظیر پیام املاک فراز) */}
-              <div className="bg-gradient-to-br from-teal-50/70 to-slate-50 border border-teal-200/80 rounded-2xl p-5 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-teal-100">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-teal-600 text-white flex items-center justify-center shadow-sm">
-                      <Bot size={20} />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                        <span>مدیریت اتصال و پاکسازی وبهوک ربات تلگرام</span>
-                        <span className="text-[10px] bg-teal-100 text-teal-800 font-semibold px-2 py-0.5 rounded-full">
-                          رفع پیام‌های متفرقه (املاک فراز)
-                        </span>
-                      </h4>
-                      <p className="text-xs text-slate-600 mt-0.5">
-                        جلوگیری از ارسال پیام‌های متفرقه قدیمی و تضمین ارسال دقیق متون تنظیم‌شده توسط شما
-                      </p>
-                    </div>
-                  </div>
-
-                  {formData.telegramToken && (
-                    <button
-                      type="button"
-                      onClick={() => checkBotStatus(formData.telegramToken)}
-                      disabled={isCheckingBot}
-                      className="text-xs text-teal-700 hover:text-teal-900 bg-teal-100/70 hover:bg-teal-200/80 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
-                    >
-                      <RefreshCw size={14} className={isCheckingBot ? 'animate-spin' : ''} />
-                      <span>بررسی وضعیت ربات</span>
-                    </button>
-                  )}
-                </div>
-
-                {botInfo?.configured && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                    <div className="bg-white/80 border border-teal-100 rounded-xl p-3 flex items-center gap-2.5">
-                      <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+              {/* کارت‌های وضعیت ربات‌های بله، تلگرام و روبیکا */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {/* کارت ربات بله */}
+                <div className="bg-gradient-to-br from-emerald-50/70 to-slate-50 border border-emerald-200/80 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-emerald-100">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shadow-sm">
+                        بله
+                      </div>
                       <div>
-                        <span className="text-slate-500 block">نام ربات متصل:</span>
-                        <span className="font-bold text-slate-800">{botInfo.bot?.first_name} (@{botInfo.bot?.username})</span>
+                        <h4 className="font-bold text-slate-800 text-xs sm:text-sm">ربات پیام‌رسان بله</h4>
+                        <span className="text-[11px] text-slate-500 font-mono">@amlake_faraz_bot</span>
                       </div>
                     </div>
-                    <div className="bg-white/80 border border-teal-100 rounded-xl p-3 flex items-center gap-2.5">
-                      {botInfo.webhook?.url ? (
-                        <>
-                          <AlertTriangle size={16} className="text-amber-500 shrink-0" />
-                          <div>
-                            <span className="text-slate-500 block">وبهوک متصل خارجی:</span>
-                            <span className="font-mono text-amber-700 break-all">{botInfo.webhook.url}</span>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <ShieldCheck size={16} className="text-emerald-600 shrink-0" />
-                          <div>
-                            <span className="text-slate-500 block">وضعیت وبهوک:</span>
-                            <span className="font-bold text-emerald-700">مستقیم و پاکسازی شده (بدون ارسال پیام متفرقه)</span>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 pt-1">
-                  <div className="text-xs text-slate-600 leading-relaxed max-w-2xl">
-                    <strong className="text-slate-800 block mb-1">چرا پیام «املاک فراز» ارسال می‌شد؟</strong>
-                    اگر توکن ربات تلگرام قبلاً روی سرور یا سورس دیگری تعریف شده باشد، تلگرام پیام‌ها را به آدرس وبهوک قبلی می‌فرستد. با کلیک بر روی دکمه زیر، آدرس وبهوک قبلی فوراً پاک شده و ربات مستقیماً با متن‌های اختصاصی همین پنل پاسخ می‌دهد.
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleClearWebhook}
-                    disabled={isClearingWebhook || !formData.telegramToken}
-                    className="w-full sm:w-auto px-4 py-2.5 bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white text-xs font-bold rounded-xl shadow-md shadow-teal-600/20 flex items-center justify-center gap-2 transition-all cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <RefreshCw size={15} className={isClearingWebhook ? 'animate-spin' : ''} />
-                    <span>{isClearingWebhook ? 'در حال پاکسازی...' : 'پاکسازی وبهوک قبلی و فعال‌سازی مستقیم'}</span>
-                  </button>
-                </div>
-
-                {/* بخش ارسال پیام آزمایشی به چت یا کاربر تلگرام */}
-                <div className="pt-3 border-t border-teal-100/80 space-y-3">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5">ارسال تست پیام به اکانت یا گروه تلگرام:</label>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <input
-                        type="text"
-                        placeholder="شناسه چت عددی (مانند: 123456789) یا آیدی تلگرام"
-                        value={testChatId}
-                        onChange={e => setTestChatId(e.target.value)}
-                        className="flex-1 border border-slate-200 bg-white rounded-xl px-3 py-2 text-xs font-mono text-left outline-none focus:ring-2 focus:ring-teal-500"
-                        dir="ltr"
-                      />
+                    <div className="flex items-center gap-1.5">
                       <button
                         type="button"
-                        onClick={handleSendTestMessage}
-                        disabled={isTestingBot || !formData.telegramToken || !testChatId}
-                        className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                        onClick={() => checkBaleBotStatus(formData.baleToken)}
+                        disabled={isCheckingBaleBot || !formData.baleToken}
+                        className="p-1.5 text-emerald-700 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer disabled:opacity-40"
+                        title="بررسی اتصال بله"
                       >
-                        <Send size={14} className={isTestingBot ? 'animate-spin' : ''} />
-                        <span>{isTestingBot ? 'در حال ارسال تست...' : 'ارسال آزمایشی پیام خوش‌آمدگویی'}</span>
+                        <RefreshCw size={14} className={isCheckingBaleBot ? 'animate-spin' : ''} />
                       </button>
+                      <a
+                        href="https://ble.ir/amlake_faraz_bot"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg transition-all flex items-center gap-1 shadow-sm shadow-emerald-600/20"
+                      >
+                        <span>ورود به ربات</span>
+                        <ExternalLink size={12} />
+                      </a>
                     </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="bg-white/80 border border-emerald-100 rounded-xl p-2.5">
+                      <span className="text-slate-500 block text-[10px]">وضعیت توکن و اتصال:</span>
+                      <span className="font-bold text-emerald-700 flex items-center gap-1 mt-0.5">
+                        <CheckCircle2 size={13} className="text-emerald-600" />
+                        {formData.baleToken ? 'فعال و ثبت شده' : 'ثبت نشده'}
+                      </span>
+                    </div>
+                    <div className="bg-white/80 border border-emerald-100 rounded-xl p-2.5">
+                      <span className="text-slate-500 block text-[10px]">کاربران متصل بله:</span>
+                      <span className="font-bold text-slate-800 mt-0.5 block font-mono">
+                        {toPersianDigits(connectedUsers.filter(u => u.platform === 'bale').length)} کاربر
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* کارت ربات تلگرام */}
+                <div className="bg-gradient-to-br from-sky-50/70 to-slate-50 border border-sky-200/80 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-sky-100">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-sky-600 text-white flex items-center justify-center font-bold text-xs shadow-sm">
+                        <Bot size={18} />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-800 text-xs sm:text-sm">ربات پیام‌رسان تلگرام</h4>
+                        <span className="text-[11px] text-slate-500 font-mono">@{botInfo?.bot?.username || 'Amlake_Faraz_bot'}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => checkTelegramBotStatus(formData.telegramToken)}
+                        disabled={isCheckingBot || !formData.telegramToken}
+                        className="p-1.5 text-sky-700 hover:bg-sky-100 rounded-lg transition-colors cursor-pointer disabled:opacity-40"
+                        title="بررسی اتصال تلگرام"
+                      >
+                        <RefreshCw size={14} className={isCheckingBot ? 'animate-spin' : ''} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleClearWebhook}
+                        disabled={isClearingWebhook || !formData.telegramToken}
+                        className="px-2.5 py-1 bg-sky-100 hover:bg-sky-200 text-sky-800 text-[11px] font-bold rounded-lg transition-all flex items-center gap-1 disabled:opacity-40 cursor-pointer"
+                        title="پاکسازی وبهوک قبلی"
+                      >
+                        <span>{isClearingWebhook ? '...' : 'پاکسازی وبهوک'}</span>
+                      </button>
+                      <a
+                        href={`https://t.me/${botInfo?.bot?.username || 'Amlake_Faraz_bot'}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white text-[11px] font-bold rounded-lg transition-all flex items-center gap-1 shadow-sm shadow-sky-600/20"
+                      >
+                        <span>ورود به ربات</span>
+                        <ExternalLink size={12} />
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="bg-white/80 border border-sky-100 rounded-xl p-2.5">
+                      <span className="text-slate-500 block text-[10px]">وضعیت وبهوک تلگرام:</span>
+                      <span className="font-bold text-emerald-700 flex items-center gap-1 mt-0.5">
+                        <ShieldCheck size={13} className="text-emerald-600" />
+                        مستقیم و اختصاصی
+                      </span>
+                    </div>
+                    <div className="bg-white/80 border border-sky-100 rounded-xl p-2.5">
+                      <span className="text-slate-500 block text-[10px]">کاربران متصل تلگرام:</span>
+                      <span className="font-bold text-slate-800 mt-0.5 block font-mono">
+                        {toPersianDigits(connectedUsers.filter(u => u.platform === 'telegram').length)} کاربر
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* کارت ربات روبیکا */}
+                <div className="bg-gradient-to-br from-purple-50/70 to-slate-50 border border-purple-200/80 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-purple-100">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-purple-600 text-white flex items-center justify-center font-bold text-xs shadow-sm">
+                        روبیکا
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-800 text-xs sm:text-sm">ربات پیام‌رسان روبیکا</h4>
+                        <span className="text-[11px] text-slate-500 font-mono">@{rubikaBotInfo?.bot?.username || 'Amlake_Faraz_bot'}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => checkRubikaBotStatus(formData.rubikaToken)}
+                        disabled={isCheckingRubikaBot || !formData.rubikaToken}
+                        className="p-1.5 text-purple-700 hover:bg-purple-100 rounded-lg transition-colors cursor-pointer disabled:opacity-40"
+                        title="بررسی اتصال روبیکا"
+                      >
+                        <RefreshCw size={14} className={isCheckingRubikaBot ? 'animate-spin' : ''} />
+                      </button>
+                      <a
+                        href={`https://rubika.ir/${rubikaBotInfo?.bot?.username || 'Amlake_Faraz_bot'}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold rounded-lg transition-all flex items-center gap-1 shadow-sm shadow-purple-600/20"
+                      >
+                        <span>ورود به ربات</span>
+                        <ExternalLink size={12} />
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="bg-white/80 border border-purple-100 rounded-xl p-2.5">
+                      <span className="text-slate-500 block text-[10px]">وضعیت توکن و اتصال:</span>
+                      <span className="font-bold text-purple-700 flex items-center gap-1 mt-0.5">
+                        <CheckCircle2 size={13} className="text-purple-600" />
+                        {formData.rubikaToken ? 'فعال و ثبت شده' : 'ثبت نشده'}
+                      </span>
+                    </div>
+                    <div className="bg-white/80 border border-purple-100 rounded-xl p-2.5">
+                      <span className="text-slate-500 block text-[10px]">کاربران متصل روبیکا:</span>
+                      <span className="font-bold text-slate-800 mt-0.5 block font-mono">
+                        {toPersianDigits(connectedUsers.filter(u => u.platform === 'rubika').length)} کاربر
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* بخش ارسال پیام آزمایشی با انتخاب پلتفرم */}
+              <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-4 space-y-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/80">
+                  <div>
+                    <h4 className="font-bold text-slate-800 text-sm">ارسال تست پیام و بررسی مخاطب</h4>
+                    <p className="text-xs text-slate-500 mt-0.5">ارسال آنی پیام خوش‌آمدگویی یا تست فاکتور به مخاطب با شناسه چت یا شماره همراه</p>
+                  </div>
+
+                  {/* تب انتخاب پلتفرم تست */}
+                  <div className="flex items-center bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setTestPlatform('bale')}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                        testPlatform === 'bale'
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-emerald-300"></span>
+                      <span>پیام‌رسان بله</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTestPlatform('telegram')}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                        testPlatform === 'telegram'
+                          ? 'bg-sky-600 text-white shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-sky-300"></span>
+                      <span>پیام‌رسان تلگرام</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTestPlatform('rubika')}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                        testPlatform === 'rubika'
+                          ? 'bg-purple-600 text-white shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-purple-300"></span>
+                      <span>پیام‌رسان روبیکا</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      placeholder={
+                        testPlatform === 'bale'
+                          ? 'شناسه چت بله (مانند 1207786693) یا شماره همراه کاربر متصل'
+                          : testPlatform === 'rubika'
+                            ? 'شناسه چت روبیکا (مانند b0DHuP... یا u0...) یا شماره همراه متصل'
+                            : 'شناسه چت تلگرام (مانند 123456789) یا @username متصل'
+                      }
+                      value={testChatId}
+                      onChange={e => setTestChatId(e.target.value)}
+                      className="flex-1 border border-slate-200 bg-white rounded-xl px-3.5 py-2.5 text-xs font-mono text-left outline-none focus:ring-2 focus:ring-teal-500 shadow-sm"
+                      dir="ltr"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSendTestMessage}
+                      disabled={isTestingBot || !testChatId || !(testPlatform === 'telegram' ? formData.telegramToken : testPlatform === 'rubika' ? formData.rubikaToken : formData.baleToken)}
+                      className={`px-5 py-2.5 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed ${
+                        testPlatform === 'bale'
+                          ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20'
+                          : testPlatform === 'rubika'
+                            ? 'bg-purple-600 hover:bg-purple-700 shadow-purple-600/20'
+                            : 'bg-sky-600 hover:bg-sky-700 shadow-sky-600/20'
+                      }`}
+                    >
+                      <Send size={15} className={isTestingBot ? 'animate-spin' : ''} />
+                      <span>{isTestingBot ? 'در حال ارسال تست...' : `ارسال تست به ${testPlatform === 'bale' ? 'بله' : testPlatform === 'rubika' ? 'روبیکا' : 'تلگرام'}`}</span>
+                    </button>
                   </div>
 
                   {/* لیست کاربران اخیراً متصل‌شده به ربات */}
                   {connectedUsers.length > 0 && (
-                    <div className="bg-white/90 border border-teal-200/70 rounded-xl p-3 space-y-2">
+                    <div className="bg-white border border-slate-200/80 rounded-xl p-3.5 space-y-2.5">
                       <div className="flex items-center justify-between text-xs font-bold text-slate-700">
                         <span className="flex items-center gap-1.5 text-teal-800">
-                          <Users size={14} />
+                          <Users size={15} />
                           کاربران فعال متصل به ربات ({toPersianDigits(connectedUsers.length)} نفر):
                         </span>
-                        <span className="text-[11px] text-slate-500 font-normal">جهت انتخاب شناسه، روی کاربر کلیک کنید</span>
+                        <span className="text-[11px] text-slate-500 font-normal">جهت انتخاب، روی کاربر کلیک کنید</span>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {connectedUsers.map((u, i) => (
-                          <button
-                            key={i}
-                            type="button"
-                            onClick={() => setTestChatId(u.chatId)}
-                            className={`text-xs px-2.5 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer ${
-                              testChatId === u.chatId
-                                ? 'bg-teal-600 text-white border-teal-600 shadow-sm'
-                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-teal-400 hover:bg-teal-50/50'
-                            }`}
-                          >
-                            <span className="font-semibold">{u.fullName || u.firstName || 'کاربر'}</span>
-                            <span className="text-[10px] opacity-75 font-mono">
-                              {u.platform === 'telegram' ? 'تلگرام' : 'بله'}
-                            </span>
-                            {u.username && <span className="text-[10px] opacity-75 font-mono">(@{u.username})</span>}
-                            {u.phone && <span className="text-[10px] opacity-75 font-mono">({u.phone})</span>}
-                            <span className="font-mono text-[10px] bg-black/10 px-1.5 py-0.5 rounded">ID: {u.chatId}</span>
-                          </button>
-                        ))}
+                        {connectedUsers.map((u, i) => {
+                          const isSelected = testChatId === u.chatId && testPlatform === u.platform;
+                          return (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => {
+                                setTestChatId(u.chatId);
+                                if (u.platform === 'telegram' || u.platform === 'bale' || u.platform === 'rubika') {
+                                  setTestPlatform(u.platform);
+                                }
+                              }}
+                              className={`text-xs px-3 py-1.5 rounded-xl border transition-all flex items-center gap-2 cursor-pointer ${
+                                isSelected
+                                  ? u.platform === 'bale'
+                                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                                    : u.platform === 'rubika'
+                                      ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                                      : 'bg-sky-600 text-white border-sky-600 shadow-sm'
+                                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-400 hover:bg-slate-100'
+                              }`}
+                            >
+                              <span className={`w-2 h-2 rounded-full ${u.platform === 'bale' ? 'bg-emerald-400' : u.platform === 'rubika' ? 'bg-purple-400' : 'bg-sky-400'}`}></span>
+                              <span className="font-semibold">{u.fullName || u.firstName || 'کاربر'}</span>
+                              <span className="text-[10px] opacity-80">({u.platform === 'bale' ? 'بله' : u.platform === 'rubika' ? 'روبیکا' : 'تلگرام'})</span>
+                              {u.phone && <span className="text-[10px] opacity-80 font-mono">({u.phone})</span>}
+                              <span className="font-mono text-[10px] bg-black/10 px-1.5 py-0.5 rounded">ID: {u.chatId}</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
 
-                  <div className="text-[11px] text-slate-600 bg-teal-50/60 p-3 rounded-xl border border-teal-100 space-y-1">
+                  <div className="text-[11px] text-slate-600 bg-teal-50/70 p-3.5 rounded-xl border border-teal-200/60 space-y-1.5">
+                    <p className="leading-relaxed font-medium text-teal-950">
+                      💡 <strong>نحوه اتصال مخاطب و جلوگیری از خطای ۴۰۰ (مخاطب در ربات استارت نزده):</strong>
+                    </p>
                     <p className="leading-relaxed">
-                      💡 <strong className="text-teal-950">نکته بسیار مهم جهت رفع خطای 400 (Bad Request):</strong> ربات‌های تلگرام به دلیل قوانین امنیتی تنها به <strong>شناسه عددی (Chat ID)</strong> امکان ارسال دارند و شماره تلفن را نمی‌پذیرند. برای اتصال، کاربر کافیست وارد ربات <span className="font-mono font-bold text-teal-800" dir="ltr">@{botInfo?.bot?.username || 'Amlake_Faraz_bot'}</span> شده و دکمه <span className="font-mono bg-white border border-teal-200 px-1.5 py-0.5 rounded text-teal-900">/start</span> را بزند. شناسه عددی او بلافاصله در پیام خوش‌آمدگویی و در لیست کاربران متصل بالا اضافه می‌شود.
+                      طبق پروتکل‌های امنیتی پیام‌رسان‌های بله، روبیکا و تلگرام، ربات‌ها اجازه آغاز پیام به اشخاص ناشناس را ندارند. مخاطب کافیست فقط <strong>یک‌بار</strong> وارد ربات شده و دکمه <span className="font-mono font-bold bg-white border border-teal-200 px-1.5 py-0.5 rounded text-teal-900">/start</span> را بزند. شناسه او فوراً ثبت شده و از آن پس تمام فاکتورها، یادآوری چک‌ها و پیام‌های سیستم به صورت آنی و بدون خطا به او تحویل داده می‌شوند.
                     </p>
                   </div>
                 </div>

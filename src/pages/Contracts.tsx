@@ -4,12 +4,20 @@ import toast from 'react-hot-toast';
 import { useLiveQuery } from 'dexie-react-hooks';
 import moment from 'moment-jalaali';
 import { numberToWords } from '../utils/helpers';
-import { toPersianDigits, toEnglishDigits, normalizeSearchQuery, formatCurrency, appendAgencySignature } from '../utils/format';
+import { 
+  toPersianDigits, 
+  toEnglishDigits, 
+  normalizeSearchQuery, 
+  formatCurrency, 
+  appendAgencySignature,
+  createInvoiceMessengerMessage
+} from '../utils/format';
 import type { Customer, Contract } from '../types';
 import { 
   Printer, Save, Calculator, CheckCircle2, Eye, Calendar, 
   CalendarCheck, Clock, Plus, Trash2, ArrowRight, FileText, 
-  Search, Filter, Building2, User, Check, CreditCard, Banknote
+  Search, Filter, Building2, User, Check, CreditCard, Banknote,
+  Send, RotateCw, RefreshCw, X, AlertCircle, Share2, CalendarPlus
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -19,10 +27,20 @@ import DatePicker from 'react-multi-date-picker';
 import persian from 'react-date-object/calendars/persian';
 import persian_fa from 'react-date-object/locales/persian_fa';
 
+const getTodayJalali = () => moment().format('jYYYY/jMM/jDD');
+const getOneYearLaterJalali = (dateStr: string) => {
+  try {
+    return moment(dateStr, 'jYYYY/jMM/jDD').add(1, 'jYear').format('jYYYY/jMM/jDD');
+  } catch (e) {
+    return '';
+  }
+};
+
+const defaultStartDate = getTodayJalali();
 const initialContractState: Partial<Contract> = {
   contractNumber: Math.floor(Math.random() * 1000000).toString(),
-  date: moment().format('jYYYY/jMM/jDD'),
-  endDate: '',
+  date: defaultStartDate,
+  endDate: getOneYearLaterJalali(defaultStartDate),
   type: 'rent',
   party1Role: 'موجر',
   party2Role: 'مستأجر',
@@ -37,6 +55,7 @@ const initialContractState: Partial<Contract> = {
   party2PaymentMethod: 'cash',
   party1ChequeDate: '',
   party2ChequeDate: '',
+  rentDueDay: 1,
   status: 'draft'
 };
 
@@ -54,6 +73,24 @@ const Contracts = () => {
   const [search2, setSearch2] = useState('');
   
   const [showInvoice, setShowInvoice] = useState(false);
+  const [isReprintMode, setIsReprintMode] = useState(false);
+
+  // Resend Invoice Modal
+  const [resendModalOpen, setResendModalOpen] = useState(false);
+  const [resendContract, setResendContract] = useState<Contract | null>(null);
+  const [resendTarget, setResendTarget] = useState<'both' | 'party1' | 'party2'>('both');
+  const [resendPlatform, setResendPlatform] = useState<'all' | 'telegram' | 'bale' | 'rubika'>('all');
+  const [resendMessageText, setResendMessageText] = useState('');
+  const [isResending, setIsResending] = useState(false);
+
+  // Contract Renewal Modal
+  const [renewalModalOpen, setRenewalModalOpen] = useState(false);
+  const [renewalContract, setRenewalContract] = useState<Contract | null>(null);
+  const [renewalStartDate, setRenewalStartDate] = useState('');
+  const [renewalEndDate, setRenewalEndDate] = useState('');
+  const [renewalPrice, setRenewalPrice] = useState(0);
+  const [renewalRent, setRenewalRent] = useState(0);
+  const [renewalRentDueDay, setRenewalRentDueDay] = useState(1);
 
   // List filters and search
   const [listSearch, setListSearch] = useState('');
@@ -95,10 +132,22 @@ const Contracts = () => {
         createdAt: Date.now()
       } as Contract);
       toast.success('قرارداد با موفقیت ثبت شد');
+
+      // Update tenant in customers collection for 1-year automation
+      if (contractData.type === 'rent') {
+        const tenant = (contractData.party1Role === 'مستأجر' ? contractData.party1 : contractData.party2) || contractData.party2;
+        if (tenant?.id) {
+          await db.customers.update(tenant.id, {
+            contractStartDate: contractData.date,
+            contractEndDate: contractData.endDate,
+            rentDueDay: contractData.rentDueDay || 1
+          });
+        }
+      }
       
       // Auto-send messages if enabled
       if (settings?.autoSendInvoices) {
-        const messageText = `جناب/سرکار، قرارداد شما با شماره ${toPersianDigits(contractData.contractNumber)} در سیستم ثبت شد.`;
+        const messageText = createInvoiceMessengerMessage(contractData, settings, false);
         setTimeout(() => {
            if (contractData.party1) sendAutoMessage(contractData.party1, messageText);
            if (contractData.party2) sendAutoMessage(contractData.party2, messageText);
@@ -106,6 +155,7 @@ const Contracts = () => {
       }
       
       setContractData(prev => ({ ...prev, id: newId }));
+      setIsReprintMode(false);
       setShowInvoice(true);
     } catch (error) {
       toast.error('خطا در ثبت قرارداد');
@@ -115,14 +165,14 @@ const Contracts = () => {
   const sendAutoMessage = async (customer: Customer, text: string) => {
     const finalMessage = appendAgencySignature(text, settings);
     const activePlatforms = [];
-    if (settings?.telegramToken && customer.telegramId) activePlatforms.push({ name: 'telegram', token: settings.telegramToken, id: customer.telegramId });
-    if (settings?.baleToken && customer.baleId) activePlatforms.push({ name: 'bale', token: settings.baleToken, id: customer.baleId });
-    if (settings?.rubikaToken && customer.rubikaId) activePlatforms.push({ name: 'rubika', token: settings.rubikaToken, id: customer.rubikaId });
+    if (settings?.telegramToken && (customer.telegramId || customer.phone)) activePlatforms.push({ name: 'telegram', token: settings.telegramToken, id: customer.telegramId || customer.phone });
+    if (settings?.baleToken && (customer.baleId || customer.phone)) activePlatforms.push({ name: 'bale', token: settings.baleToken, id: customer.baleId || customer.phone });
+    if (settings?.rubikaToken && (customer.rubikaId || customer.phone)) activePlatforms.push({ name: 'rubika', token: settings.rubikaToken, id: customer.rubikaId || customer.phone });
 
     for (const p of activePlatforms) {
       const cleanChatId = toEnglishDigits(p.id).trim();
       try {
-        await axios.post('/api/send-message', {
+        const res = await axios.post('/api/send-message', {
           platform: p.name,
           token: p.token,
           chatId: cleanChatId,
@@ -134,7 +184,7 @@ const Contracts = () => {
           phone: customer.phone,
           messenger: p.name,
           message: finalMessage,
-          status: 'sent',
+          status: res.data?.success ? 'sent' : 'failed',
           chatId: cleanChatId
         } as any);
       } catch (err) {
@@ -148,6 +198,170 @@ const Contracts = () => {
           chatId: cleanChatId
         } as any);
       }
+    }
+  };
+
+  const openInvoiceForContract = (contract: Contract, isReprint: boolean = true) => {
+    setContractData(contract);
+    setIsReprintMode(isReprint);
+    setShowInvoice(true);
+  };
+
+  // Open Resend Invoice Modal with reprint text
+  const handleOpenResendModal = (contract: Contract) => {
+    setResendContract(contract);
+    const msg = createInvoiceMessengerMessage(contract, settings, true);
+    setResendMessageText(msg);
+    setResendTarget('both');
+    setResendPlatform('all');
+    setResendModalOpen(true);
+  };
+
+  const executeResend = async () => {
+    if (!resendContract) return;
+
+    setIsResending(true);
+    const toastId = toast.loading('در حال ارسال مجدد فاکتور به پیام‌رسان‌ها (با ذکر چاپ مجدد)...');
+
+    const recipients: { customer: Customer; role: string }[] = [];
+    if ((resendTarget === 'party1' || resendTarget === 'both') && resendContract.party1) {
+      recipients.push({ customer: resendContract.party1, role: resendContract.party1Role || 'طرف اول' });
+    }
+    if ((resendTarget === 'party2' || resendTarget === 'both') && resendContract.party2) {
+      recipients.push({ customer: resendContract.party2, role: resendContract.party2Role || 'طرف دوم' });
+    }
+
+    if (recipients.length === 0) {
+      toast.error('هیچ مخاطبی برای ارسال انتخاب نشده است', { id: toastId });
+      setIsResending(false);
+      return;
+    }
+
+    let successCount = 0;
+
+    for (const { customer } of recipients) {
+      const activePlatforms = [];
+      if ((resendPlatform === 'all' || resendPlatform === 'telegram') && settings?.telegramToken && (customer.telegramId || customer.phone)) {
+        activePlatforms.push({ name: 'telegram', token: settings.telegramToken, id: customer.telegramId || customer.phone });
+      }
+      if ((resendPlatform === 'all' || resendPlatform === 'bale') && settings?.baleToken && (customer.baleId || customer.phone)) {
+        activePlatforms.push({ name: 'bale', token: settings.baleToken, id: customer.baleId || customer.phone });
+      }
+      if ((resendPlatform === 'all' || resendPlatform === 'rubika') && settings?.rubikaToken && (customer.rubikaId || customer.phone)) {
+        activePlatforms.push({ name: 'rubika', token: settings.rubikaToken, id: customer.rubikaId || customer.phone });
+      }
+
+      for (const p of activePlatforms) {
+        const cleanChatId = toEnglishDigits(p.id).trim();
+        try {
+          const res = await axios.post('/api/send-message', {
+            platform: p.name,
+            token: p.token,
+            chatId: cleanChatId,
+            message: resendMessageText
+          });
+          if (res.data?.success) {
+            await db.messageLogs.add({
+              date: Date.now(),
+              customerName: customer.fullName,
+              phone: customer.phone,
+              messenger: p.name,
+              message: resendMessageText,
+              status: 'sent',
+              chatId: cleanChatId
+            } as any);
+            successCount++;
+          } else {
+            await db.messageLogs.add({
+              date: Date.now(),
+              customerName: customer.fullName,
+              phone: customer.phone,
+              messenger: p.name,
+              message: resendMessageText,
+              status: 'failed',
+              chatId: cleanChatId
+            } as any);
+          }
+        } catch (err) {
+          await db.messageLogs.add({
+            date: Date.now(),
+            customerName: customer.fullName,
+            phone: customer.phone,
+            messenger: p.name,
+            message: resendMessageText,
+            status: 'failed',
+            chatId: cleanChatId
+          } as any);
+        }
+      }
+    }
+
+    setIsResending(false);
+    toast.dismiss(toastId);
+    if (successCount > 0) {
+      toast.success(`فاکتور چاپ مجدد با موفقیت برای ${toPersianDigits(successCount)} پیام‌رسان ارسال شد.`);
+      setResendModalOpen(false);
+    } else {
+      toast.error('ارسال پیام با خطا مواجه شد. لطفاً توکن پیام‌رسان‌ها و آیدی مخاطبان را بررسی فرمایید.');
+    }
+  };
+
+  // Open Contract Renewal Modal
+  const handleOpenRenewalModal = (contract: Contract) => {
+    setRenewalContract(contract);
+    const startD = contract.endDate || moment().format('jYYYY/jMM/jDD');
+    const endD = moment(startD, 'jYYYY/jMM/jDD').add(1, 'jYear').format('jYYYY/jMM/jDD');
+    setRenewalStartDate(startD);
+    setRenewalEndDate(endD);
+    setRenewalPrice(contract.price || 0);
+    setRenewalRent(contract.rent || 0);
+    setRenewalRentDueDay(contract.rentDueDay || 1);
+    setRenewalModalOpen(true);
+  };
+
+  const executeRenewal = async () => {
+    if (!renewalContract || !renewalContract.id) return;
+
+    try {
+      const updatedCount = (renewalContract.renewedCount || 0) + 1;
+      let base = 0;
+      if (renewalContract.type === 'sale') {
+        base = renewalPrice;
+      } else {
+        base = renewalPrice + (renewalRent * 12);
+      }
+      const commission = (base * (settings?.commissionRate || 1)) / 100;
+      const tax = (commission * (settings?.taxRate || 9)) / 100;
+      const totalPayable = commission + tax;
+
+      await db.contracts.update(renewalContract.id, {
+        date: renewalStartDate,
+        renewalDate: renewalStartDate,
+        endDate: renewalEndDate,
+        renewedCount: updatedCount,
+        status: 'renewed',
+        price: renewalPrice,
+        rent: renewalRent,
+        rentDueDay: renewalRentDueDay,
+        commission,
+        tax,
+        totalPayable
+      });
+
+      // Update tenant in customers table so auto-messages run for the renewed year
+      const tenant = (renewalContract.party1Role === 'مستأجر' ? renewalContract.party1 : renewalContract.party2) || renewalContract.party2;
+      if (tenant?.id) {
+        await db.customers.update(tenant.id, {
+          contractStartDate: renewalStartDate,
+          contractEndDate: renewalEndDate,
+          rentDueDay: renewalRentDueDay
+        });
+      }
+
+      toast.success(`قرارداد برای ۱ سال تمدید شد (تا تاریخ ${toPersianDigits(renewalEndDate)}). یادآورهای هوشمند مجدداً فعال شدند.`);
+      setRenewalModalOpen(false);
+    } catch (err) {
+      toast.error('خطا در ثبت تمدید قرارداد');
     }
   };
 
@@ -188,11 +402,6 @@ const Contracts = () => {
     }, 2000);
   };
 
-  const openInvoiceForContract = (contract: Contract) => {
-    setContractData(contract);
-    setShowInvoice(true);
-  };
-
   const handleDeleteContract = async (id: number) => {
     if (window.confirm('آیا از حذف این قرارداد و فاکتور اطمینان دارید؟')) {
       await db.contracts.delete(id);
@@ -205,13 +414,16 @@ const Contracts = () => {
 
   const resetForm = () => {
     setShowInvoice(false);
+    setIsReprintMode(false);
     setStep(1);
     setSearch1('');
     setSearch2('');
+    const tDate = moment().format('jYYYY/jMM/jDD');
     setContractData({
       ...initialContractState,
       contractNumber: Math.floor(Math.random() * 1000000).toString(),
-      date: moment().format('jYYYY/jMM/jDD')
+      date: tDate,
+      endDate: getOneYearLaterJalali(tDate)
     });
   };
 
@@ -294,7 +506,7 @@ const Contracts = () => {
         </div>
       </div>
 
-      {/* VIEW: CONTRACTS LIST (لیست قراردادها با نمایش موعد چک، چشمی و تاریخ انجام) */}
+      {/* VIEW: CONTRACTS LIST (لیست قراردادها با نمایش موعد چک و تاریخ انجام) */}
       {activeTab === 'list' && !showInvoice && (
         <div className="space-y-6 animate-in fade-in">
           {/* Controls: Search & Filters */}
@@ -341,7 +553,7 @@ const Contracts = () => {
                   listFilter === 'cheque' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
                 }`}
               >
-                <Eye size={14} className="text-amber-500" />
+                <CreditCard size={14} className="text-amber-600" />
                 <span>دارای پرداخت با چک ({toPersianDigits(contracts?.filter(c => c.party1PaymentMethod === 'cheque' || c.party2PaymentMethod === 'cheque').length || 0)})</span>
               </button>
             </div>
@@ -356,7 +568,7 @@ const Contracts = () => {
                     <th className="p-4 font-bold">شماره قرارداد</th>
                     <th className="p-4 font-bold">نوع معامله</th>
                     <th className="p-4 font-bold">طرفین قرارداد</th>
-                    <th className="p-4 font-bold">تاریخ انجام قرارداد</th>
+                    <th className="p-4 font-bold">تاریخ و اعتبار ۱ ساله</th>
                     <th className="p-4 font-bold">وضعیت پرداخت و چک</th>
                     <th className="p-4 font-bold">مبلغ کل / کمیسیون</th>
                     <th className="p-4 font-bold text-center">عملیات</th>
@@ -372,6 +584,8 @@ const Contracts = () => {
                   ) : (
                     filteredContracts.map((c) => {
                       const hasCheque = c.party1PaymentMethod === 'cheque' || c.party2PaymentMethod === 'cheque';
+                      const isExpired = c.endDate ? moment().isAfter(moment(c.endDate, 'jYYYY/jMM/jDD'), 'day') : false;
+
                       return (
                         <tr key={c.id} className="hover:bg-slate-50/70 transition-colors">
                           {/* شماره قرارداد با فرمت فارسی */}
@@ -402,42 +616,52 @@ const Contracts = () => {
                             </div>
                           </td>
 
-                          {/* تاریخ انجام قرارداد */}
+                          {/* تاریخ انجام قرارداد و اعتبار ۱ ساله */}
                           <td className="p-4 text-xs">
                             <div className="flex items-center gap-1.5 font-mono text-slate-800 font-bold">
                               <Calendar size={14} className="text-emerald-600" />
-                              <span>{toPersianDigits(c.date)}</span>
+                              <span>انعقاد: {toPersianDigits(c.date)}</span>
                             </div>
-                            {(c.type === 'rent' || c.party1Role === 'موجر' || c.party2Role === 'موجر') && (
-                              <span className="inline-block mt-1 text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 font-medium">
-                                عقد قرارداد موجر و مستأجر
+                            {c.endDate && (
+                              <div className="text-[11px] text-slate-600 mt-0.5 font-mono">
+                                اتمام (۱ ساله): {toPersianDigits(c.endDate)}
+                              </div>
+                            )}
+                            {c.status === 'renewed' && (
+                              <span className="inline-block mt-1 text-[10px] text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 font-bold">
+                                تمدید دور {toPersianDigits(c.renewedCount || 1)}
                               </span>
                             )}
-                            {c.endDate && (
-                              <div className="text-[11px] text-slate-400 mt-0.5 font-mono">
-                                اتمام: {toPersianDigits(c.endDate)}
+                            {c.type === 'rent' && c.rentDueDay && (
+                              <div className="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 font-medium mt-1">
+                                موعد اجاره: روز {toPersianDigits(c.rentDueDay)} ماه
+                              </div>
+                            )}
+                            {isExpired && (
+                              <div className="text-[10px] text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 font-bold mt-1">
+                                پایان اعتبار ۱ ساله (نیاز به تمدید)
                               </div>
                             )}
                           </td>
 
-                          {/* وضعیت پرداخت و چشمی موعد چک */}
+                          {/* وضعیت پرداخت و سررسید چک */}
                           <td className="p-4">
                             {hasCheque ? (
                               <div className="space-y-1">
                                 <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 text-amber-800 border border-amber-300 font-bold text-xs">
-                                  <Eye size={15} className="text-amber-600 animate-pulse" />
-                                  <span>پرداخت با چک (چشمی)</span>
+                                  <CreditCard size={14} className="text-amber-600" />
+                                  <span>پرداخت با چک صیادی / نسیه</span>
                                 </div>
                                 <div className="text-[11px] text-amber-900 bg-amber-50/50 p-1.5 rounded border border-amber-100">
                                   {c.party1PaymentMethod === 'cheque' && (
                                     <p>
-                                      <strong>موعد چک {c.party1Role}:</strong>{' '}
+                                      <strong>سررسید چک {c.party1Role}:</strong>{' '}
                                       <span className="font-mono font-bold">{toPersianDigits(c.party1ChequeDate) || 'ثبت نشده'}</span>
                                     </p>
                                   )}
                                   {c.party2PaymentMethod === 'cheque' && (
                                     <p>
-                                      <strong>موعد چک {c.party2Role}:</strong>{' '}
+                                      <strong>سررسید چک {c.party2Role}:</strong>{' '}
                                       <span className="font-mono font-bold">{toPersianDigits(c.party2ChequeDate) || 'ثبت نشده'}</span>
                                     </p>
                                   )}
@@ -460,21 +684,39 @@ const Contracts = () => {
 
                           {/* عملیات */}
                           <td className="p-4 text-center">
-                            <div className="flex items-center justify-center gap-1.5">
+                            <div className="flex flex-wrap items-center justify-center gap-1.5">
                               <button
-                                onClick={() => openInvoiceForContract(c)}
-                                className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors border border-emerald-200 shadow-sm"
-                                title="مشاهده فاکتور و تاریخ انجام قرارداد"
+                                onClick={() => openInvoiceForContract(c, false)}
+                                className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors border border-emerald-200 shadow-xs"
+                                title="مشاهده فاکتور"
                               >
-                                <Eye size={15} />
-                                <span>مشاهده فاکتور</span>
+                                <Eye size={14} />
+                                <span>فاکتور</span>
                               </button>
+                              <button
+                                onClick={() => handleOpenResendModal(c)}
+                                className="bg-blue-50 hover:bg-blue-100 text-blue-700 px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors border border-blue-200 shadow-xs"
+                                title="ارسال مجدد فاکتور به پیام‌رسان‌ها (با ذکر چاپ مجدد)"
+                              >
+                                <Send size={14} />
+                                <span>ارسال مجدد</span>
+                              </button>
+                              {c.type === 'rent' && (
+                                <button
+                                  onClick={() => handleOpenRenewalModal(c)}
+                                  className="bg-purple-50 hover:bg-purple-100 text-purple-700 px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors border border-purple-200 shadow-xs"
+                                  title="تمدید قرارداد ۱ ساله و فعال‌سازی مجدد پیام‌های خودکار"
+                                >
+                                  <RotateCw size={14} />
+                                  <span>تمدید ۱ ساله</span>
+                                </button>
+                              )}
                               <button
                                 onClick={() => handleDeleteContract(c.id!)}
                                 className="text-slate-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
                                 title="حذف قرارداد"
                               >
-                                <Trash2 size={16} />
+                                <Trash2 size={15} />
                               </button>
                             </div>
                           </td>
@@ -523,28 +765,14 @@ const Contracts = () => {
                 {step === 1 && (
                   <div className="space-y-6 animate-in slide-in-from-right-4">
                     
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6 pb-6 border-b border-slate-100">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">شماره قرارداد (ارقام فارسی)</label>
-                        <input 
-                          type="tel" inputMode="numeric"
-                          className="w-full border border-slate-200 rounded-lg p-2.5 text-left font-mono text-sm bg-slate-50 focus:ring-2 focus:ring-emerald-500 outline-none"
-                          value={toPersianDigits(contractData.contractNumber || '')}
-                          onChange={(e) => setContractData({...contractData, contractNumber: toEnglishDigits(e.target.value).replace(/\D/g, '')})}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">تاریخ موعد / اتمام قرارداد (در صورت وجود)</label>
-                        <DatePicker 
-                          calendar={persian}
-                          locale={persian_fa}
-                          format="YYYY/MM/DD"
-                          value={contractData.endDate || ""}
-                          onChange={(dateObject) => setContractData({...contractData, endDate: dateObject ? dateObject.format() : ''})}
-                          inputClass="w-full border border-slate-200 rounded-lg p-2.5 text-left font-mono text-sm bg-slate-50 focus:ring-2 focus:ring-emerald-500 outline-none"
-                          placeholder="1404/05/12"
-                        />
-                      </div>
+                    <div className="mb-6 pb-6 border-b border-slate-100 max-w-md">
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">شماره قرارداد (ارقام فارسی)</label>
+                      <input 
+                        type="tel" inputMode="numeric"
+                        className="w-full border border-slate-200 rounded-lg p-2.5 text-left font-mono text-sm bg-slate-50 focus:ring-2 focus:ring-emerald-500 outline-none"
+                        value={toPersianDigits(contractData.contractNumber || '')}
+                        onChange={(e) => setContractData({...contractData, contractNumber: toEnglishDigits(e.target.value).replace(/\D/g, '')})}
+                      />
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -753,19 +981,59 @@ const Contracts = () => {
                         </span>
                       </div>
                       <p className="text-xs text-slate-600">
-                        تاریخ انجام قرارداد پس از ثبت مبالغ معامله مشخص می‌شود و در انتهای عملیاتی فاکتور نیز درج خواهد گردید:
+                        تاریخ انجام قرارداد را مشخص فرمایید؛ طبق قانون و ضوابط سامانه، تاریخ اتمام قرارداد به صورت خودکار دقیقاً ۱ سال بعد در نظر گرفته می‌شود:
                       </p>
-                      <div className="max-w-xs">
-                        <DatePicker 
-                          calendar={persian}
-                          locale={persian_fa}
-                          format="YYYY/MM/DD"
-                          value={contractData.date || ""}
-                          onChange={(dateObject) => setContractData({...contractData, date: dateObject ? dateObject.format() : ''})}
-                          inputClass="w-full border border-slate-200 rounded-lg p-2.5 text-left font-mono text-sm bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                          placeholder="انتخاب تاریخ انجام قرارداد"
-                        />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-600 mb-1">تاریخ انعقاد قرارداد</label>
+                          <DatePicker 
+                            calendar={persian}
+                            locale={persian_fa}
+                            format="YYYY/MM/DD"
+                            value={contractData.date || ""}
+                            onChange={(dateObject) => {
+                              const newDate = dateObject ? dateObject.format() : '';
+                              const oneYearLater = newDate ? getOneYearLaterJalali(newDate) : '';
+                              setContractData(prev => ({
+                                ...prev,
+                                date: newDate,
+                                endDate: oneYearLater
+                              }));
+                            }}
+                            inputClass="w-full border border-slate-200 rounded-lg p-2.5 text-left font-mono text-sm bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                            placeholder="انتخاب تاریخ انجام قرارداد"
+                          />
+                        </div>
+                        <div className="bg-white p-3 rounded-lg border border-emerald-100 flex flex-col justify-center">
+                          <span className="text-xs font-bold text-slate-500 mb-1">تاریخ اتمام قرارداد (۱ سال بعد به صورت خودکار):</span>
+                          <span className="text-sm font-bold text-emerald-700 font-mono">
+                            {contractData.endDate ? toPersianDigits(contractData.endDate) : 'محاسبه خودکار بر اساس تاریخ انعقاد'}
+                          </span>
+                        </div>
                       </div>
+
+                      {/* فیلد موعد پرداخت اجاره بها برای رهن و اجاره */}
+                      {contractData.type === 'rent' && (
+                        <div className="mt-3 pt-3 border-t border-emerald-200/60">
+                          <label className="block text-xs font-bold text-emerald-900 mb-1.5">
+                            روز موعد پرداخت اجاره بها در هر ماه (ارسال پیام ۱ روز قبل):
+                          </label>
+                          <select
+                            className="w-full max-w-sm border border-emerald-300 rounded-lg p-2.5 text-sm bg-white font-mono text-slate-700 focus:ring-2 focus:ring-emerald-500 outline-none"
+                            value={contractData.rentDueDay || 1}
+                            onChange={(e) => setContractData(prev => ({ ...prev, rentDueDay: Number(e.target.value) }))}
+                          >
+                            {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
+                              <option key={day} value={day}>
+                                روز {toPersianDigits(day)} هر ماه (پیام یادآوری ۱ روز قبل ارسال می‌شود)
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-[11px] text-emerald-800 mt-1.5">
+                            نرم‌افزار در هر ماه یک روز مانده به این موعد، پیام یادآوری را به صورت خودکار تا اتمام مدت ۱ ساله قرارداد ارسال خواهد کرد.
+                          </p>
+                        </div>
+                      )}
                     </div>
                     
                     <div className="sticky bottom-0 -mx-6 -mb-6 mt-4 p-4 bg-white border-t border-slate-100 flex justify-between rounded-b-xl z-10 shadow-[0_-4px_6px_-1px_rgb(0,0,0,0.05)]">
@@ -801,7 +1069,7 @@ const Contracts = () => {
                           { id: 'cash', label: 'نقدی' },
                           { id: 'pos', label: 'کارتخوان' },
                           { id: 'transfer', label: 'انتقال وجه' },
-                          { id: 'cheque', label: 'چک صیادی/نسیه (چشمی)' }
+                          { id: 'cheque', label: 'چک صیادی / نسیه' }
                         ].map((m) => (
                           <button 
                             key={m.id}
@@ -812,7 +1080,7 @@ const Contracts = () => {
                                 : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
                             }`}
                           >
-                            {m.id === 'cheque' && <Eye size={16} className="text-amber-500" />}
+                            {m.id === 'cheque' && <CreditCard size={16} className="text-amber-600" />}
                             <span>{m.label}</span>
                           </button>
                         ))}
@@ -840,12 +1108,12 @@ const Contracts = () => {
                       </div>
                     )}
 
-                    {/* فیلد چشمی تاریخ موعد چک */}
+                    {/* فیلد تاریخ سررسید چک */}
                     {contractData.party1PaymentMethod === 'cheque' && (
                       <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 space-y-2">
                         <div className="flex items-center gap-2 text-amber-800 font-bold text-sm">
-                          <Eye size={18} className="text-amber-600" />
-                          <span>ثبت چشمی موعد چک برای فاکتور {contractData.party1Role}</span>
+                          <CreditCard size={18} className="text-amber-600" />
+                          <span>ثبت تاریخ سررسید چک برای فاکتور {contractData.party1Role}</span>
                         </div>
                         <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">تاریخ موعد چک / سررسید پرداخت</label>
                         <DatePicker 
@@ -857,7 +1125,7 @@ const Contracts = () => {
                           inputClass="w-full md:w-1/2 border border-slate-200 rounded-lg p-2.5 text-left font-mono text-sm bg-white focus:ring-2 focus:ring-amber-500 outline-none"
                           placeholder="1404/02/15"
                         />
-                        <p className="text-[11px] text-amber-700">تاریخ موعد چک با نشان چشمی در فاکتور و منوی قراردادها ثبت و نمایش داده می‌شود.</p>
+                        <p className="text-[11px] text-amber-700">تاریخ سررسید چک در فاکتور و منوی قراردادها ثبت و نمایش داده می‌شود.</p>
                       </div>
                     )}
 
@@ -886,7 +1154,7 @@ const Contracts = () => {
                           { id: 'cash', label: 'نقدی' },
                           { id: 'pos', label: 'کارتخوان' },
                           { id: 'transfer', label: 'انتقال وجه' },
-                          { id: 'cheque', label: 'چک صیادی/نسیه (چشمی)' }
+                          { id: 'cheque', label: 'چک صیادی / نسیه' }
                         ].map((m) => (
                           <button 
                             key={m.id}
@@ -897,7 +1165,7 @@ const Contracts = () => {
                                 : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
                             }`}
                           >
-                            {m.id === 'cheque' && <Eye size={16} className="text-amber-500" />}
+                            {m.id === 'cheque' && <CreditCard size={16} className="text-amber-600" />}
                             <span>{m.label}</span>
                           </button>
                         ))}
@@ -925,12 +1193,12 @@ const Contracts = () => {
                       </div>
                     )}
 
-                    {/* فیلد چشمی تاریخ موعد چک */}
+                    {/* فیلد تاریخ سررسید چک */}
                     {contractData.party2PaymentMethod === 'cheque' && (
                       <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 space-y-2">
                         <div className="flex items-center gap-2 text-amber-800 font-bold text-sm">
-                          <Eye size={18} className="text-amber-600" />
-                          <span>ثبت چشمی موعد چک برای فاکتور {contractData.party2Role}</span>
+                          <CreditCard size={18} className="text-amber-600" />
+                          <span>ثبت تاریخ سررسید چک برای فاکتور {contractData.party2Role}</span>
                         </div>
                         <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">تاریخ موعد چک / سررسید پرداخت</label>
                         <DatePicker 
@@ -942,7 +1210,7 @@ const Contracts = () => {
                           inputClass="w-full md:w-1/2 border border-slate-200 rounded-lg p-2.5 text-left font-mono text-sm bg-white focus:ring-2 focus:ring-amber-500 outline-none"
                           placeholder="1404/02/15"
                         />
-                        <p className="text-[11px] text-amber-700">تاریخ موعد چک با نشان چشمی در فاکتور و منوی قراردادها ثبت و نمایش داده می‌شود.</p>
+                        <p className="text-[11px] text-amber-700">تاریخ سررسید چک در فاکتور و منوی قراردادها ثبت و نمایش داده می‌شود.</p>
                       </div>
                     )}
 
@@ -964,8 +1232,27 @@ const Contracts = () => {
                   <Printer size={20}/> چاپ / خروجی PDF
                 </button>
                 <button 
+                  onClick={() => handleOpenResendModal(contractData)} 
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm font-bold transition-colors"
+                >
+                  <Send size={18} />
+                  <span>ارسال به پیام‌رسان‌ها (با ذکر چاپ مجدد)</span>
+                </button>
+                <button 
+                  onClick={() => setIsReprintMode(!isReprintMode)} 
+                  className={`px-4 py-3 rounded-xl border font-bold flex items-center gap-2 transition-colors ${
+                    isReprintMode 
+                      ? 'bg-amber-100 text-amber-900 border-amber-300 shadow-xs' 
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                  title="نمایش یا عدم نمایش برچسب چاپ مجدد در فاکتور"
+                >
+                  <RotateCw size={16} />
+                  <span>{isReprintMode ? 'حالت: چاپ مجدد (فعال)' : 'برچسب چاپ مجدد'}</span>
+                </button>
+                <button 
                   onClick={resetForm} 
-                  className="flex-1 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 py-3 rounded-xl shadow-sm font-bold transition-colors"
+                  className="border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 px-5 py-3 rounded-xl shadow-sm font-bold transition-colors"
                 >
                   صدور فاکتور جدید
                 </button>
@@ -974,7 +1261,7 @@ const Contracts = () => {
                     setShowInvoice(false);
                     setActiveTab('list');
                   }} 
-                  className="px-6 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 py-3 rounded-xl shadow-sm font-bold transition-colors"
+                  className="px-5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 py-3 rounded-xl shadow-sm font-bold transition-colors"
                 >
                   مشاهده در لیست قراردادها
                 </button>
@@ -993,6 +1280,13 @@ const Contracts = () => {
                 }`} 
                 style={{ direction: 'rtl' }}
               >
+                {/* برچسب نسخه چاپ مجدد / فاکتور المثنی */}
+                {isReprintMode && (
+                  <div className="mb-4 p-2 bg-amber-50 text-amber-900 border-2 border-dashed border-amber-300 rounded-lg text-center font-bold text-xs flex items-center justify-center gap-1.5">
+                    <span>⚠️ نسخه چاپ مجدد / فاکتور المثنی</span>
+                  </div>
+                )}
+
                 {/* Modern Layout */}
                 {settings?.invoiceLayout === 'modern' ? (
                   <div className="bg-emerald-50 -mx-8 -mt-8 p-8 mb-6 rounded-t-xl border-b border-emerald-100 flex justify-between items-center">
@@ -1006,6 +1300,11 @@ const Contracts = () => {
                     <div className="text-left text-sm text-emerald-800">
                       <p><strong className="opacity-80">شماره قرارداد:</strong> <span className="font-mono font-bold">{toPersianDigits(contractData.contractNumber)}</span></p>
                       <p className="text-xs text-emerald-600 mt-0.5">صورتحساب رسمی خدمات املاک</p>
+                      {isReprintMode && (
+                        <span className="inline-block mt-1 text-[11px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded font-bold">
+                          چاپ مجدد
+                        </span>
+                      )}
                     </div>
                   </div>
                 ) : settings?.invoiceLayout === 'compact' ? (
@@ -1013,6 +1312,7 @@ const Contracts = () => {
                     <h1 className="text-xl font-bold">{settings?.agencyName}</h1>
                     <div className="text-left text-xs font-mono">
                       شماره: {toPersianDigits(contractData.contractNumber)}
+                      {isReprintMode && ' (چاپ مجدد)'}
                     </div>
                   </div>
                 ) : (
@@ -1027,6 +1327,11 @@ const Contracts = () => {
                     <div className="text-left text-sm">
                       <p><strong className="text-slate-500">شماره قرارداد:</strong> <span className="font-mono font-bold">{toPersianDigits(contractData.contractNumber)}</span></p>
                       <p className="text-xs text-slate-400 mt-0.5">صورتحساب رسمی کمیسیون</p>
+                      {isReprintMode && (
+                        <span className="inline-block mt-1 text-[11px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded font-bold">
+                          چاپ مجدد
+                        </span>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1098,7 +1403,7 @@ const Contracts = () => {
                 <div className={`bg-slate-50 rounded-lg border border-slate-200 ${settings?.paperSize === '57mm' ? 'p-2 mb-3' : 'p-5 mb-6'}`}>
                   <p><strong className="text-slate-600">به حروف:</strong> {numberToWords(contractData.totalPayable || 0)} {settings?.currency}</p>
                   
-                  {/* پرداخت و چشمی موعد چک برای هر دو طرف */}
+                  {/* پرداخت و موعد چک برای هر دو طرف */}
                   <div className={`grid mt-4 pt-4 border-t border-slate-200 ${settings?.paperSize === '57mm' ? 'grid-cols-1 gap-2' : 'grid-cols-2 gap-4'}`}>
                     {/* طرف اول */}
                     <div className="space-y-1">
@@ -1116,12 +1421,12 @@ const Contracts = () => {
                         {contractData.party1PaymentMethod === 'cheque' && (
                           <div className="space-y-1 w-full">
                             <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-0.5 rounded text-xs font-bold">
-                              <Eye size={14} className="text-amber-700 animate-pulse" />
-                              پرداخت با چک صیادی / نسیه (چشمی)
+                              <CreditCard size={14} className="text-amber-700" />
+                              پرداخت با چک صیادی / نسیه
                             </span>
                             <p className="text-xs text-amber-900 font-bold flex items-center gap-1 mt-1">
                               <Calendar size={13} className="text-amber-700" />
-                              تاریخ موعد چک: <span className="font-mono bg-white px-2 py-0.5 rounded border border-amber-300">{toPersianDigits(contractData.party1ChequeDate) || 'ثبت نشده'}</span>
+                              سررسید چک: <span className="font-mono bg-white px-2 py-0.5 rounded border border-amber-300">{toPersianDigits(contractData.party1ChequeDate) || 'ثبت نشده'}</span>
                             </p>
                           </div>
                         )}
@@ -1144,12 +1449,12 @@ const Contracts = () => {
                         {contractData.party2PaymentMethod === 'cheque' && (
                           <div className="space-y-1 w-full">
                             <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-0.5 rounded text-xs font-bold">
-                              <Eye size={14} className="text-amber-700 animate-pulse" />
-                              پرداخت با چک صیادی / نسیه (چشمی)
+                              <CreditCard size={14} className="text-amber-700" />
+                              پرداخت با چک صیادی / نسیه
                             </span>
                             <p className="text-xs text-amber-900 font-bold flex items-center gap-1 mt-1">
                               <Calendar size={13} className="text-amber-700" />
-                              تاریخ موعد چک: <span className="font-mono bg-white px-2 py-0.5 rounded border border-amber-300">{toPersianDigits(contractData.party2ChequeDate) || 'ثبت نشده'}</span>
+                              سررسید چک: <span className="font-mono bg-white px-2 py-0.5 rounded border border-amber-300">{toPersianDigits(contractData.party2ChequeDate) || 'ثبت نشده'}</span>
                             </p>
                           </div>
                         )}

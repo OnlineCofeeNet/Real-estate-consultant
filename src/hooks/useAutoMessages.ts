@@ -19,6 +19,8 @@ export const useAutoMessages = () => {
 
         const todayDate = moment().format('jYYYY/jMM/jDD');
         const tomorrowDate = moment().add(1, 'days').format('jYYYY/jMM/jDD');
+        const tomorrowDayOfMonth = parseInt(moment().add(1, 'days').format('jD'), 10);
+        const todayMoment = moment(todayDate, 'jYYYY/jMM/jDD');
         
         const customers = await db.customers.toArray();
         const contracts = await db.contracts.toArray();
@@ -41,14 +43,14 @@ export const useAutoMessages = () => {
           if (alreadySentToday) return;
 
           const activePlatforms = [];
-          if (settings.telegramToken && customer.telegramId) activePlatforms.push({ name: 'telegram', token: settings.telegramToken, id: customer.telegramId });
-          if (settings.baleToken && customer.baleId) activePlatforms.push({ name: 'bale', token: settings.baleToken, id: customer.baleId });
-          if (settings.rubikaToken && customer.rubikaId) activePlatforms.push({ name: 'rubika', token: settings.rubikaToken, id: customer.rubikaId });
+          if (settings.telegramToken && (customer.telegramId || customer.phone)) activePlatforms.push({ name: 'telegram', token: settings.telegramToken, id: customer.telegramId || customer.phone });
+          if (settings.baleToken && (customer.baleId || customer.phone)) activePlatforms.push({ name: 'bale', token: settings.baleToken, id: customer.baleId || customer.phone });
+          if (settings.rubikaToken && (customer.rubikaId || customer.phone)) activePlatforms.push({ name: 'rubika', token: settings.rubikaToken, id: customer.rubikaId || customer.phone });
 
           for (const p of activePlatforms) {
             const cleanChatId = toEnglishDigits(p.id).trim();
             try {
-              await axios.post('/api/send-message', {
+              const res = await axios.post('/api/send-message', {
                 platform: p.name,
                 token: p.token,
                 chatId: cleanChatId,
@@ -60,7 +62,7 @@ export const useAutoMessages = () => {
                 phone: customer.phone,
                 messenger: p.name,
                 message: text,
-                status: 'sent',
+                status: res.data?.success ? 'sent' : 'failed',
                 chatId: cleanChatId
               } as any);
             } catch (err) {
@@ -78,38 +80,95 @@ export const useAutoMessages = () => {
         };
 
 
-        // 1. Check Customer Dates (Birthday, Contract End, Rent Payment)
+        // 1. Check Customer Dates (Birthday, Contract Expiry, Rent Payment)
         for (const customer of customers) {
           if (!customer.autoSendMessages) continue;
 
           const intro = `جناب/سرکار ${customer.fullName}،\n\n`;
 
+          // زادروز
           if (customer.birthDate && customer.birthDate.substring(5) === todayDate.substring(5)) {
             if (settings.defaultMessages?.birthday) {
               await sendMultiPlatform(customer, intro + settings.defaultMessages.birthday, 'birthday');
             }
           }
 
-          if (customer.contractEndDate === todayDate) {
-            if (settings.defaultMessages?.contractExpiry) {
-              await sendMultiPlatform(customer, intro + settings.defaultMessages.contractExpiry, 'contract');
+          // اتمام قرارداد (اعتبار ۱ ساله - بعد از ۱ سال ارسال نمی‌شود)
+          if (customer.contractEndDate) {
+            const custEndM = moment(customer.contractEndDate, 'jYYYY/jMM/jDD');
+            const isCustExpired = todayMoment.isAfter(custEndM, 'day');
+            
+            if (!isCustExpired && customer.contractEndDate === todayDate) {
+              if (settings.defaultMessages?.contractExpiry) {
+                await sendMultiPlatform(customer, intro + settings.defaultMessages.contractExpiry, 'contract');
+              }
             }
-          }
 
-          // بررسی موعد اجاره‌بها تنها در صورت فعال بودن در تنظیمات
-          if (settings.autoSendRentReminder && customer.rentPaymentDate === todayDate) {
-            if (settings.defaultMessages?.rentPayment) {
-              await sendMultiPlatform(customer, intro + settings.defaultMessages.rentPayment, 'rent');
+            // بررسی موعد اجاره‌بها در صورت فعال بودن در تنظیمات
+            // یک روز مانده به موعد پرداخت اجاره در ماه (تا مدت ۱ ساله اتمام قرارداد)
+            if (settings.autoSendRentReminder && !isCustExpired) {
+              const matchesRentDueDay = customer.rentDueDay && customer.rentDueDay === tomorrowDayOfMonth;
+              const matchesLegacyDate = customer.rentPaymentDate === todayDate;
+
+              if (matchesRentDueDay || matchesLegacyDate) {
+                if (settings.defaultMessages?.rentPayment) {
+                  await sendMultiPlatform(customer, intro + settings.defaultMessages.rentPayment, 'rent');
+                }
+              }
             }
           }
         }
 
-        // 2. Check Cheque Reminders
+        // 2. Check Rent Contracts (اتمام قرارداد ۱ ساله رهن و اجاره و یادآوری اجاره‌بها ۱ روز قبل از موعد)
+        for (const contract of contracts) {
+          if (contract.status === 'cancelled') continue;
+          if (contract.type !== 'rent') continue; // فقط قراردادهای رهن و اجاره
+
+          const activeStartDate = contract.renewalDate || contract.date;
+          const activeEndDate = contract.endDate;
+          if (!activeEndDate) continue;
+
+          const startM = moment(activeStartDate, 'jYYYY/jMM/jDD');
+          const endM = moment(activeEndDate, 'jYYYY/jMM/jDD');
+
+          // اعتبار ۱ ساله پیام پرداخت اجاره و اتمام قرارداد: بعد از ۱ سال ارسال نمی‌گردد مگر اینکه تمدید شود
+          const isExpired = todayMoment.isAfter(endM, 'day');
+          if (isExpired) {
+            continue; // بیش از یک سال سپری شده و تمدید نشده، عدم ارسال پیام به هیچ یک از طرفین
+          }
+
+          // الف) پیام اتمام قرارداد رهن و اجاره در روز موعد اتمام (۱ ساله) به هر دو طرف
+          if (activeEndDate === todayDate) {
+            const expiryText = settings.defaultMessages?.contractExpiry || 
+              'مشتری گرامی، موعد ۱ ساله قرارداد رهن و اجاره شما به پایان رسیده است. در صورت تمایل به تمدید قرارداد، لطفاً با مشاور املاک تماس حاصل فرمایید.';
+            
+            if (contract.party1) {
+              await sendMultiPlatform(contract.party1, `جناب/سرکار ${contract.party1.fullName} (${contract.party1Role})،\n\n${expiryText}`, 'contract');
+            }
+            if (contract.party2) {
+              await sendMultiPlatform(contract.party2, `جناب/سرکار ${contract.party2.fullName} (${contract.party2Role})،\n\n${expiryText}`, 'contract');
+            }
+          }
+
+          // ب) پیام پرداخت اجاره بها: در هر ماه دقیقاً ۱ روز مانده به موعد پرداخت اجاره تا پایان مدت ۱ ساله قرارداد
+          if (settings.autoSendRentReminder && contract.rentDueDay && contract.rentDueDay === tomorrowDayOfMonth) {
+            const rentText = settings.defaultMessages?.rentPayment || 
+              'مشتری گرامی، یادآوری می‌گردد فردا موعد پرداخت اجاره‌بها ماهیانه می‌باشد. لطفاً نسبت به پرداخت به موقع اقدام فرمایید.';
+            
+            // ارسال به طرف مستأجر (یا طرف دوم در رهن و اجاره)
+            const tenant = (contract.party1Role === 'مستأجر' ? contract.party1 : contract.party2) || contract.party2;
+            if (tenant) {
+              await sendMultiPlatform(tenant, `جناب/سرکار ${tenant.fullName}،\n\n${rentText}`, 'rent');
+            }
+          }
+        }
+
+        // 3. Check Cheque Reminders
         if (settings.autoSendChequeReminder) {
           for (const contract of contracts) {
             if (contract.status === 'cancelled') continue;
             
-            const text = settings.defaultMessages?.chequeDue || 'یادآوری: فردا موعد چک شما می‌باشد.';
+            const text = settings.defaultMessages?.chequeDue || 'یادآوری: فردا موعد سررسید چک شما می‌باشد.';
             
             if (contract.party1PaymentMethod === 'cheque' && contract.party1ChequeDate === tomorrowDate && contract.party1) {
               await sendMultiPlatform(contract.party1, `جناب/سرکار ${contract.party1.fullName}،\n\n${text}`, 'cheque');
@@ -120,8 +179,8 @@ export const useAutoMessages = () => {
           }
         }
 
-      } catch (err) {
-        console.error('Automation error:', err);
+      } catch (err: any) {
+        console.log('Notice: Automation routine skipped:', err?.message || 'unknown');
       }
     };
 
