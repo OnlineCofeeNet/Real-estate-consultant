@@ -17,7 +17,7 @@ import {
   Printer, Save, Calculator, CheckCircle2, Eye, Calendar, 
   CalendarCheck, Clock, Plus, Trash2, ArrowRight, FileText, 
   Search, Filter, Building2, User, Check, CreditCard, Banknote,
-  Send, RotateCw, RefreshCw, X, AlertCircle, Share2, CalendarPlus
+  Send, RotateCw, RefreshCw, X, AlertCircle, Share2, CalendarPlus, Download
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -38,7 +38,7 @@ const getOneYearLaterJalali = (dateStr: string) => {
 
 const defaultStartDate = getTodayJalali();
 const initialContractState: Partial<Contract> = {
-  contractNumber: Math.floor(Math.random() * 1000000).toString(),
+  contractNumber: '',
   date: defaultStartDate,
   endDate: getOneYearLaterJalali(defaultStartDate),
   type: 'rent',
@@ -74,6 +74,7 @@ const Contracts = () => {
   
   const [showInvoice, setShowInvoice] = useState(false);
   const [isReprintMode, setIsReprintMode] = useState(false);
+  const [printTarget, setPrintTarget] = useState<'party1' | 'party2' | 'both'>('both');
 
   // Resend Invoice Modal
   const [resendModalOpen, setResendModalOpen] = useState(false);
@@ -97,14 +98,15 @@ const Contracts = () => {
   const [listFilter, setListFilter] = useState<'all' | 'rent' | 'sale' | 'cheque'>('all');
 
   const calculateTotal = () => {
-    let base = 0;
+    let commission = 0;
     if (contractData.type === 'sale') {
-      base = contractData.price || 0;
+      commission = ((contractData.price || 0) * (settings?.commissionRate || 1)) / 100;
     } else {
-      base = (contractData.price || 0) + ((contractData.rent || 0) * 12);
+      // فرمول رایج کمیسیون رهن و اجاره: ۲۵٪ (یک چهارم) مجموع اجاره‌بها و معادل اجاره‌ی رهن (هر ۱ میلیون = ۳۰ هزار تومان یا ۳٪)
+      const equivalentRent = (contractData.rent || 0) + ((contractData.price || 0) * 0.03);
+      commission = equivalentRent * 0.25;
     }
     
-    const commission = (base * (settings?.commissionRate || 1)) / 100;
     const tax = (commission * (settings?.taxRate || 9)) / 100;
     const total = commission + tax;
     
@@ -132,6 +134,7 @@ const Contracts = () => {
         createdAt: Date.now()
       } as Contract);
       toast.success('قرارداد با موفقیت ثبت شد');
+      sendAutoSms({ ...contractData, totalPayable: (contractData.commission || 0) + (contractData.tax || 0) });
 
       // Update tenant in customers collection for 1-year automation
       if (contractData.type === 'rent') {
@@ -324,13 +327,13 @@ const Contracts = () => {
 
     try {
       const updatedCount = (renewalContract.renewedCount || 0) + 1;
-      let base = 0;
+      let commission = 0;
       if (renewalContract.type === 'sale') {
-        base = renewalPrice;
+        commission = (renewalPrice * (settings?.commissionRate || 1)) / 100;
       } else {
-        base = renewalPrice + (renewalRent * 12);
+        const equivalentRent = renewalRent + (renewalPrice * 0.03);
+        commission = equivalentRent * 0.25;
       }
-      const commission = (base * (settings?.commissionRate || 1)) / 100;
       const tax = (commission * (settings?.taxRate || 9)) / 100;
       const totalPayable = commission + tax;
 
@@ -421,7 +424,7 @@ const Contracts = () => {
     const tDate = moment().format('jYYYY/jMM/jDD');
     setContractData({
       ...initialContractState,
-      contractNumber: Math.floor(Math.random() * 1000000).toString(),
+      contractNumber: '',
       date: tDate,
       endDate: getOneYearLaterJalali(tDate)
     });
@@ -766,7 +769,7 @@ const Contracts = () => {
                   <div className="space-y-6 animate-in slide-in-from-right-4">
                     
                     <div className="mb-6 pb-6 border-b border-slate-100 max-w-md">
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">شماره قرارداد (ارقام فارسی)</label>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">شماره قرارداد</label>
                       <input 
                         type="tel" inputMode="numeric"
                         className="w-full border border-slate-200 rounded-lg p-2.5 text-left font-mono text-sm bg-slate-50 focus:ring-2 focus:ring-emerald-500 outline-none"
@@ -1005,10 +1008,19 @@ const Contracts = () => {
                           />
                         </div>
                         <div className="bg-white p-3 rounded-lg border border-emerald-100 flex flex-col justify-center">
-                          <span className="text-xs font-bold text-slate-500 mb-1">تاریخ اتمام قرارداد (۱ سال بعد به صورت خودکار):</span>
-                          <span className="text-sm font-bold text-emerald-700 font-mono">
-                            {contractData.endDate ? toPersianDigits(contractData.endDate) : 'محاسبه خودکار بر اساس تاریخ انعقاد'}
-                          </span>
+                          <label className="text-xs font-bold text-slate-500 mb-1">تاریخ اتمام قرارداد:</label>
+                          <DatePicker
+                            calendar={persian}
+                            locale={persian_fa}
+                            calendarPosition="bottom-right"
+                            value={contractData.endDate}
+                            onChange={(dateObject: any) => {
+                              const newDate = dateObject ? dateObject.format() : '';
+                              setContractData(prev => ({ ...prev, endDate: newDate }));
+                            }}
+                            inputClass="w-full border-none p-0 text-sm font-bold text-emerald-700 font-mono bg-transparent focus:ring-0 outline-none"
+                            placeholder="انتخاب تاریخ اتمام"
+                          />
                         </div>
                       </div>
 
@@ -1227,44 +1239,41 @@ const Contracts = () => {
           ) : (
             /* Invoice Print View */
             <div className="space-y-4 animate-in zoom-in-95">
-              <div className="flex flex-wrap gap-2">
-                <button onClick={generatePDF} className="flex-1 bg-slate-800 hover:bg-slate-900 text-white py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm font-bold transition-colors">
-                  <Printer size={20}/> چاپ / خروجی PDF
-                </button>
-                <button 
-                  onClick={() => handleOpenResendModal(contractData)} 
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm font-bold transition-colors"
-                >
-                  <Send size={18} />
-                  <span>ارسال به پیام‌رسان‌ها (با ذکر چاپ مجدد)</span>
-                </button>
-                <button 
-                  onClick={() => setIsReprintMode(!isReprintMode)} 
-                  className={`px-4 py-3 rounded-xl border font-bold flex items-center gap-2 transition-colors ${
-                    isReprintMode 
-                      ? 'bg-amber-100 text-amber-900 border-amber-300 shadow-xs' 
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                  }`}
-                  title="نمایش یا عدم نمایش برچسب چاپ مجدد در فاکتور"
-                >
-                  <RotateCw size={16} />
-                  <span>{isReprintMode ? 'حالت: چاپ مجدد (فعال)' : 'برچسب چاپ مجدد'}</span>
-                </button>
-                <button 
-                  onClick={resetForm} 
-                  className="border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 px-5 py-3 rounded-xl shadow-sm font-bold transition-colors"
-                >
-                  صدور فاکتور جدید
-                </button>
-                <button 
-                  onClick={() => {
-                    setShowInvoice(false);
-                    setActiveTab('list');
-                  }} 
-                  className="px-5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 py-3 rounded-xl shadow-sm font-bold transition-colors"
-                >
-                  مشاهده در لیست قراردادها
-                </button>
+              <div className="flex flex-col gap-3 print-hide mb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <button onClick={() => { setPrintTarget('party1'); setTimeout(() => window.print(), 100); }} className="bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm font-bold transition-colors text-sm">
+                    <Printer size={18}/> فاکتور {contractData.party1Role}
+                  </button>
+                  <button onClick={() => { setPrintTarget('party2'); setTimeout(() => window.print(), 100); }} className="bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm font-bold transition-colors text-sm">
+                    <Printer size={18}/> فاکتور {contractData.party2Role}
+                  </button>
+                  <button onClick={() => { setPrintTarget('both'); setTimeout(() => window.print(), 100); }} className="bg-slate-800 hover:bg-slate-900 text-white py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm font-bold transition-colors text-sm">
+                    <Printer size={18}/> یکپارچه (هردو)
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={generatePDF} className="flex-1 bg-slate-700 hover:bg-slate-800 text-white py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm font-bold transition-colors">
+                    <Download size={20}/> دانلود PDF
+                  </button>
+                  <button 
+                    onClick={() => handleOpenResendModal(contractData)} 
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm font-bold transition-colors"
+                  >
+                    <Send size={18} />
+                    <span>ارسال (چاپ مجدد)</span>
+                  </button>
+                  <button 
+                    onClick={() => setIsReprintMode(!isReprintMode)} 
+                    className={`px-4 py-3 rounded-xl border font-bold flex items-center gap-2 transition-colors ${
+                      isReprintMode 
+                        ? 'bg-amber-100 text-amber-900 border-amber-300 shadow-xs' 
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <RotateCw size={16} />
+                    <span>{isReprintMode ? 'چاپ مجدد: فعال' : 'برچسب'}</span>
+                  </button>
+                </div>
               </div>
 
               <div 
@@ -1291,10 +1300,14 @@ const Contracts = () => {
                 {settings?.invoiceLayout === 'modern' ? (
                   <div className="bg-emerald-50 -mx-8 -mt-8 p-8 mb-6 rounded-t-xl border-b border-emerald-100 flex justify-between items-center">
                     <div className="flex gap-4 items-center">
-                      {settings?.logoBase64 && <img src={settings.logoBase64} alt="Logo" className="w-16 h-16 object-contain" />}
+                      {settings?.logoBase64 && settings?.printOptions?.showLogo !== false && <img src={settings.logoBase64} alt="Logo" className="w-16 h-16 object-contain" />}
                       <div>
                         <h1 className="text-3xl font-bold text-emerald-900">{settings?.agencyName}</h1>
                         <p className="text-emerald-700 mt-1">{settings?.slogan}</p>
+                        <div className="text-xs text-emerald-800 mt-2 flex gap-4 font-mono opacity-80">
+                          {settings?.nationalId && settings?.printOptions?.showNationalId !== false && <span>شناسه ملی: {toPersianDigits(settings.nationalId)}</span>}
+                          {settings?.economicCode && settings?.printOptions?.showEconomicCode !== false && <span>کد اقتصادی: {toPersianDigits(settings.economicCode)}</span>}
+                        </div>
                       </div>
                     </div>
                     <div className="text-left text-sm text-emerald-800">
@@ -1308,20 +1321,30 @@ const Contracts = () => {
                     </div>
                   </div>
                 ) : settings?.invoiceLayout === 'compact' ? (
-                  <div className="border-b-2 border-slate-800 pb-2 mb-4 flex justify-between items-end">
-                    <h1 className="text-xl font-bold">{settings?.agencyName}</h1>
-                    <div className="text-left text-xs font-mono">
-                      شماره: {toPersianDigits(contractData.contractNumber)}
-                      {isReprintMode && ' (چاپ مجدد)'}
+                  <div className="border-b-2 border-slate-800 pb-2 mb-4">
+                    <div className="flex justify-between items-end mb-2">
+                      <h1 className="text-xl font-bold">{settings?.agencyName}</h1>
+                      <div className="text-left text-xs font-mono">
+                        شماره: {toPersianDigits(contractData.contractNumber)}
+                        {isReprintMode && ' (چاپ مجدد)'}
+                      </div>
+                    </div>
+                    <div className="text-[10px] text-slate-500 flex gap-3 font-mono">
+                      {settings?.nationalId && settings?.printOptions?.showNationalId !== false && <span>شناسه ملی: {toPersianDigits(settings.nationalId)}</span>}
+                      {settings?.economicCode && settings?.printOptions?.showEconomicCode !== false && <span>کد اقتصادی: {toPersianDigits(settings.economicCode)}</span>}
                     </div>
                   </div>
                 ) : (
                   <div className="border-b-2 border-slate-800 pb-4 mb-6 flex justify-between items-center">
                     <div className="flex gap-4 items-center">
-                      {settings?.logoBase64 && <img src={settings.logoBase64} alt="Logo" className="w-16 h-16 object-contain" />}
+                      {settings?.logoBase64 && settings?.printOptions?.showLogo !== false && <img src={settings.logoBase64} alt="Logo" className="w-16 h-16 object-contain" />}
                       <div>
                         <h1 className="text-3xl font-bold">{settings?.agencyName}</h1>
                         <p className="text-slate-500 mt-1">{settings?.slogan}</p>
+                        <div className="text-xs text-slate-500 mt-2 flex gap-4 font-mono">
+                          {settings?.nationalId && settings?.printOptions?.showNationalId !== false && <span>شناسه ملی: {toPersianDigits(settings.nationalId)}</span>}
+                          {settings?.economicCode && settings?.printOptions?.showEconomicCode !== false && <span>کد اقتصادی: {toPersianDigits(settings.economicCode)}</span>}
+                        </div>
                       </div>
                     </div>
                     <div className="text-left text-sm">
@@ -1406,6 +1429,7 @@ const Contracts = () => {
                   {/* پرداخت و موعد چک برای هر دو طرف */}
                   <div className={`grid mt-4 pt-4 border-t border-slate-200 ${settings?.paperSize === '57mm' ? 'grid-cols-1 gap-2' : 'grid-cols-2 gap-4'}`}>
                     {/* طرف اول */}
+                    {(printTarget === 'both' || printTarget === 'party1') && (
                     <div className="space-y-1">
                       <p className="text-sm font-bold text-slate-700">
                         پرداخت سهم {contractData.party1Role}:
@@ -1432,8 +1456,10 @@ const Contracts = () => {
                         )}
                       </div>
                     </div>
+                    )}
 
                     {/* طرف دوم */}
+                    {(printTarget === 'both' || printTarget === 'party2') && (
                     <div className="space-y-1">
                       <p className="text-sm font-bold text-slate-700">
                         پرداخت سهم {contractData.party2Role}:
@@ -1460,43 +1486,6 @@ const Contracts = () => {
                         )}
                       </div>
                     </div>
-                  </div>
-
-                  {(contractData.party1PaymentMethod === 'transfer' || contractData.party2PaymentMethod === 'transfer' || contractData.party1PaymentMethod === 'cheque' || contractData.party2PaymentMethod === 'cheque') && settings?.paperSize !== '57mm' && (
-                    <div className="mt-4 p-3 bg-white border border-slate-200 rounded-lg text-xs flex flex-wrap gap-4 text-center justify-between">
-                      <div><span className="text-slate-500">صاحب حساب:</span> <strong>{settings?.accountHolderName || '-'}</strong></div>
-                      <div><span className="text-slate-500">شماره کارت:</span> <strong className="font-mono" dir="ltr">{toPersianDigits(settings?.cardNumber) || '-'}</strong></div>
-                      <div><span className="text-slate-500">شماره شبا:</span> <strong className="font-mono" dir="ltr">{toPersianDigits(settings?.shebaNumber) || '-'}</strong></div>
-                    </div>
-                  )}
-                </div>
-
-                {/* انتهای عملیاتی فاکتور: تاریخ انجام قرارداد برای فاکتورهای بیم موجر و مستاجر */}
-                <div className={`rounded-xl border-2 border-emerald-300 bg-emerald-50/70 ${settings?.paperSize === '57mm' ? 'p-2 my-2' : 'p-4 my-5'}`}>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-emerald-600 text-white rounded-lg shadow-sm">
-                        <CalendarCheck size={20} />
-                      </div>
-                      <div>
-                        <p className="text-[11px] font-bold text-emerald-800">پایان بخش محاسبات و تاییدیه عملیات فاکتور</p>
-                        <p className="font-bold text-slate-900 text-sm sm:text-base mt-0.5">
-                          {contractData.type === 'rent' || (contractData.party1Role === 'موجر' || contractData.party2Role === 'موجر' || contractData.party1Role === 'مستأجر' || contractData.party2Role === 'مستأجر')
-                            ? 'تاریخ انجام و انعقاد قرارداد بین موجر و مستأجر:'
-                            : 'تاریخ انجام و انعقاد قرارداد بین طرفین:'}{' '}
-                          <span className="font-mono font-bold text-emerald-900 bg-white px-3 py-0.5 rounded-md border border-emerald-200 shadow-xs inline-block mr-1">
-                            {toPersianDigits(contractData.date)}
-                          </span>
-                        </p>
-                      </div>
-                    </div>
-
-                    {contractData.endDate && (
-                      <div className="flex items-center gap-1.5 text-xs bg-white px-3 py-1.5 rounded-lg border border-emerald-200">
-                        <Clock size={15} className="text-emerald-700" />
-                        <span className="text-slate-600">موعد پایان قرارداد:</span>
-                        <strong className="font-mono text-slate-900">{toPersianDigits(contractData.endDate)}</strong>
-                      </div>
                     )}
                   </div>
                 </div>
@@ -1524,7 +1513,7 @@ const Contracts = () => {
                   </div>
                   <div className={`text-center relative ${settings?.paperSize === '57mm' || settings?.paperSize === '80mm' ? 'w-full min-h-[60px]' : 'w-1/3'}`}>
                     <p className="font-bold text-slate-700">مهر و امضاء مدیریت املاک</p>
-                    {settings?.stampBase64 && (
+                    {settings?.stampBase64 && settings?.printOptions?.showLogo !== false && (
                       <img src={settings.stampBase64} alt="Stamp" className={`absolute ${settings?.paperSize === '57mm' || settings?.paperSize === '80mm' ? 'top-6 w-16 h-16' : 'top-8 w-32 h-32'} left-1/2 -translate-x-1/2 object-contain pointer-events-none`} />
                     )}
                   </div>
@@ -1534,10 +1523,38 @@ const Contracts = () => {
                   </div>
                 </div>
                 
+                
                 {/* پاورقی آدرس و تلفن با فرمت فارسی */}
-                <div className="mt-12 text-center text-xs text-slate-500 border-t border-slate-200 pt-4">
-                  <p>{settings?.address} | تلفن تماس: {toPersianDigits(settings?.phone1)}</p>
+                <div className="mt-8 text-center text-xs text-slate-500 border-t border-slate-200 pt-4">
+                  <p>
+                    {settings?.printOptions?.showAddress !== false && <span>{settings?.address}</span>}
+                    {settings?.printOptions?.showAddress !== false && settings?.printOptions?.showPhones !== false && <span> | </span>}
+                    {settings?.printOptions?.showPhones !== false && <span>تلفن تماس: {toPersianDigits(settings?.phone1)}</span>}
+                  </p>
                 </div>
+
+                {/* ته قبض / Tear-off Receipt */}
+                {(printTarget === 'party1' || printTarget === 'party2') && (
+                  <div className="mt-8 pt-8 border-t-2 border-dashed border-slate-400" style={{ pageBreakInside: 'avoid' }}>
+                    <div className="flex justify-between items-center mb-4">
+                      <h4 className="font-bold text-lg">ته قبض فاکتور (نسخه بایگانی املاک)</h4>
+                      <span className="text-sm font-mono bg-slate-100 px-3 py-1 rounded-lg">شماره فاکتور: {toPersianDigits(contractData.contractNumber)}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-sm mb-6">
+                      <div><span className="text-slate-500">نام طرف قرارداد:</span> <strong className="mr-1">{printTarget === 'party1' ? contractData.party1?.fullName : contractData.party2?.fullName} ({printTarget === 'party1' ? contractData.party1Role : contractData.party2Role})</strong></div>
+                      <div><span className="text-slate-500">مبلغ پرداخت شده:</span> <strong className="mr-1">{toPersianDigits(formatCurrency(printTarget === 'party1' ? contractData.party1PaymentMethod === 'cash' ? contractData.totalPayable : contractData.totalPayable : contractData.totalPayable))} تومان</strong></div>
+                      <div><span className="text-slate-500">روش پرداخت:</span> <strong className="mr-1">{printTarget === 'party1' ? (contractData.party1PaymentMethod === 'pos' ? 'کارتخوان' : contractData.party1PaymentMethod === 'cash' ? 'نقدی' : contractData.party1PaymentMethod === 'transfer' ? 'انتقال وجه' : 'چک') : (contractData.party2PaymentMethod === 'pos' ? 'کارتخوان' : contractData.party2PaymentMethod === 'cash' ? 'نقدی' : contractData.party2PaymentMethod === 'transfer' ? 'انتقال وجه' : 'چک')}</strong></div>
+                      <div><span className="text-slate-500">تاریخ پرداخت:</span> <strong className="mr-1 font-mono">{toPersianDigits(contractData.date)}</strong></div>
+                    </div>
+                    <div className="flex justify-between items-end">
+                      <p className="text-xs text-slate-500">اینجانب تایید می‌نمایم که فاکتور و مدارک فوق را دریافت نموده‌ام.</p>
+                      <div className="text-center">
+                        <p className="font-bold mb-8">امضاء و اثر انگشت {printTarget === 'party1' ? contractData.party1Role : contractData.party2Role}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
               </div>
             </div>
           )}

@@ -24,6 +24,7 @@ import moment from 'moment-jalaali';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import { toPersianDigits, formatCurrency } from '../utils/format';
+import { BroadcastForm } from '../components/BroadcastForm';
 
 const Dashboard = () => {
   const contracts = useLiveQuery(() => db.contracts.toArray());
@@ -459,6 +460,9 @@ const Dashboard = () => {
           )}
         </div>
       )}
+
+      {/* Broadcast Form */}
+      <BroadcastForm />
       
       {/* جدول تاریخچه لاگ ارسال پیام‌ها */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">

@@ -68,6 +68,8 @@ export interface Settings {
   currency: 'ریال' | 'تومان';
   commissionRate: number;
   taxRate: number;
+  economicCode?: string;
+  nationalId?: string;
   posIp: string;
   posPort: string;
   posTerminalId: string;
@@ -95,6 +97,14 @@ export interface Settings {
   darkMode: boolean;
   invoiceLayout?: 'standard' | 'modern' | 'compact';
   paperSize?: '57mm' | '80mm' | 'a4' | 'a5';
+  printOptions?: {
+    showLogo?: boolean;
+    showAddress?: boolean;
+    showPhones?: boolean;
+    showBank?: boolean;
+    showNationalId?: boolean;
+    showEconomicCode?: boolean;
+  };
   
   // Custom Messages
   invoiceMessageBuyer?: string;

@@ -299,6 +299,46 @@ const Customers = () => {
     reader.readAsBinaryString(file);
   };
 
+  
+  const handleSendSms = async () => {
+    if (!messageText) {
+      toast.error('متن پیام را وارد کنید');
+      return;
+    }
+    if (selectedCustomers.length === 0) {
+      toast.error('هیچ مشتری انتخاب نشده است');
+      return;
+    }
+    toast.loading('در حال ارسال پیامک...', { id: 'sendSms' });
+    let successCount = 0;
+    
+    for (const cid of selectedCustomers) {
+      const customer = customers?.find(c => c.id === cid);
+      if (!customer || !customer.phone) continue;
+      
+      try {
+        const res = await axios.post('/api/bot/send-sms', {
+          phone: customer.phone,
+          message: `سلام ${customer.fullName}\n${messageText}`
+        });
+        if (res.data.success) {
+          successCount++;
+        }
+      } catch (err) {
+        console.error('SMS error:', err);
+      }
+    }
+    
+    toast.dismiss('sendSms');
+    if (successCount > 0) {
+      toast.success(`ارسال پیامک پایان یافت. موفق: ${toPersianDigits(successCount)} شماره`);
+    } else {
+      toast.error('هیچ پیامکی ارسال نشد. تنظیمات پیامک را بررسی کنید.');
+    }
+    setIsMessageModalOpen(false);
+    setMessageText('');
+  };
+
   const handleSendMessage = async () => {
     if (!messageText) {
       toast.error('متن پیام را وارد کنید');
@@ -368,6 +408,26 @@ const Customers = () => {
 
           if (res.data?.success) {
             successCount++;
+            
+            const resolvedId = res.data?.resolvedChatId || cleanChatId;
+            let needsUpdate = false;
+            const updatedCustomer = { ...customer };
+            
+            if (p.name === 'telegram' && updatedCustomer.telegramId !== resolvedId) {
+              updatedCustomer.telegramId = resolvedId;
+              needsUpdate = true;
+            } else if (p.name === 'bale' && updatedCustomer.baleId !== resolvedId) {
+              updatedCustomer.baleId = resolvedId;
+              needsUpdate = true;
+            } else if (p.name === 'rubika' && updatedCustomer.rubikaId !== resolvedId) {
+              updatedCustomer.rubikaId = resolvedId;
+              needsUpdate = true;
+            }
+            
+            if (needsUpdate) {
+              await db.customers.put(updatedCustomer);
+            }
+
             await db.messageLogs.add({
               date: Date.now(),
               customerName: customer.fullName,
@@ -429,13 +489,27 @@ const Customers = () => {
               <Send size={18} /> ارسال پیام ({toPersianDigits(selectedCustomers.length)})
             </button>
           )}
+          <div className="flex gap-2">
           <button onClick={exportToExcel} className="bg-white border border-slate-200 text-slate-700 px-3 py-2 rounded-xl flex items-center gap-2 hover:bg-slate-50 transition-colors shadow-sm text-sm">
             <Download size={18} /> خروجی اکسل
           </button>
-          <label className="bg-white border border-slate-200 text-slate-700 px-3 py-2 rounded-xl flex items-center gap-2 hover:bg-slate-50 transition-colors shadow-sm cursor-pointer text-sm">
-            <Upload size={18} /> وارد کردن
-            <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={importFromExcel} />
-          </label>
+          
+          <div className="relative group">
+            <label className="bg-white border border-slate-200 text-slate-700 px-3 py-2 rounded-xl flex items-center gap-2 hover:bg-slate-50 transition-colors shadow-sm cursor-pointer text-sm">
+              <Upload size={18} /> وارد کردن اکسل
+              <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={importFromExcel} />
+            </label>
+            <div className="absolute top-full mt-2 w-64 bg-slate-800 text-white text-xs p-3 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 right-0">
+              <p className="font-bold mb-2 text-emerald-400">راهنمای آپلود فایل اکسل:</p>
+              <ul className="space-y-1 text-slate-200 list-disc list-inside">
+                <li>سطر اول فایل باید شامل عناوین زیر باشد:</li>
+                <li className="text-emerald-300 font-mono">نام و نام خانوادگی</li>
+                <li className="text-emerald-300 font-mono">موبایل</li>
+                <li className="text-emerald-300 font-mono">کد ملی</li>
+                <li>فایل پشتیبانی شده: xlsx, csv</li>
+              </ul>
+            </div>
+          </div>
           <button 
             onClick={() => {
               setFormData(initialCustomerForm);
@@ -993,7 +1067,10 @@ const Customers = () => {
               <div className="flex gap-3 pt-4 border-t border-slate-100">
                 <button type="button" onClick={() => setIsMessageModalOpen(false)} className="flex-1 border border-slate-200 text-slate-600 rounded-xl py-3 hover:bg-slate-50 font-bold transition-colors text-sm">انصراف</button>
                 <button onClick={handleSendMessage} className="flex-1 bg-blue-600 text-white rounded-xl py-3 hover:bg-blue-700 font-bold shadow-sm shadow-blue-600/20 transition-colors flex justify-center items-center gap-2 text-sm">
-                  <Send size={18} /> ارسال پیام
+                  <Send size={18} /> پیام‌رسان‌ها
+                </button>
+                <button onClick={handleSendSms} className="flex-1 bg-emerald-600 text-white rounded-xl py-3 hover:bg-emerald-700 font-bold shadow-sm shadow-emerald-600/20 transition-colors flex justify-center items-center gap-2 text-sm">
+                  <Smartphone size={18} /> پیامک (SMS)
                 </button>
               </div>
             </div>

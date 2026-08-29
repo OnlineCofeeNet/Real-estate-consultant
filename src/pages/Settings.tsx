@@ -26,7 +26,8 @@ import {
   AlertTriangle,
   Users,
   Smartphone,
-  ExternalLink
+  ExternalLink,
+  Printer
 } from 'lucide-react';
 import type { Settings as SettingsType } from '../types';
 import { IRANIAN_BANKS, getAgencySignature, toPersianDigits, toEnglishDigits, formatTemplateMessage } from '../utils/format';
@@ -531,6 +532,15 @@ const Settings = () => {
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">آدرس دفتر املاک</label>
                   <input type="text" className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:ring-2 focus:ring-emerald-500 outline-none transition-all" value={formData.address || ""} onChange={e => setFormData({...formData, address: e.target.value})} />
                 </div>
+                
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">کد اقتصادی</label>
+                  <input type="text" className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-mono text-right" placeholder="مثال: ۴۱۱۱۱۱۱۱۱۱۱۱" value={formData.economicCode || ""} onChange={e => setFormData({...formData, economicCode: toEnglishDigits(e.target.value).replace(/\D/g, '')})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">شناسه ملی / کد ملی</label>
+                  <input type="text" className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-mono text-right" placeholder="مثال: ۰۱۲۳۴۵۶۷۸۹" value={formData.nationalId || ""} onChange={e => setFormData({...formData, nationalId: toEnglishDigits(e.target.value).replace(/\D/g, '')})} />
+                </div>
 
                 {/* بخش حساب بانکی با انتخاب لیست و امکان تایپ نوشتاری آزاد */}
                 <div className="md:col-span-2 mt-3 pt-5 border-t border-slate-100">
@@ -584,12 +594,12 @@ const Settings = () => {
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">شماره حساب</label>
-                      <input type="text" dir="ltr" className="w-full border border-slate-200 bg-slate-50 rounded-xl p-2.5 text-right font-mono focus:ring-2 focus:ring-emerald-500 outline-none transition-all text-sm" value={formData.accountNumber || ''} onChange={e => setFormData({...formData, accountNumber: e.target.value})} />
+                      <input type="text" dir="ltr" className="w-full border border-slate-200 bg-slate-50 rounded-xl p-2.5 text-right font-mono focus:ring-2 focus:ring-emerald-500 outline-none transition-all text-sm" value={formData.accountNumber || ''} onChange={e => setFormData({...formData, accountNumber: toEnglishDigits(e.target.value).replace(/\D/g, '')})} />
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">شماره کارت (۱۶ رقمی)</label>
                       <input type="text" dir="ltr" maxLength={19} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-2.5 text-right font-mono focus:ring-2 focus:ring-emerald-500 outline-none transition-all text-sm" value={formData.cardNumber || ''} onChange={e => {
-                        const val = e.target.value.replace(/\D/g, '');
+                        const val = toEnglishDigits(e.target.value).replace(/\D/g, '');
                         const formatted = val.replace(/(\d{4})(?=\d)/g, '$1-');
                         setFormData({...formData, cardNumber: formatted});
                       }} />
@@ -599,7 +609,7 @@ const Settings = () => {
                       <div className="relative">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-sm">IR</span>
                         <input type="text" dir="ltr" maxLength={29} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-2.5 pl-10 text-right font-mono focus:ring-2 focus:ring-emerald-500 outline-none transition-all text-sm" value={formData.shebaNumber || ''} onChange={e => {
-                          let val = e.target.value.replace(/[^0-9]/g, '');
+                          let val = toEnglishDigits(e.target.value).replace(/[^0-9]/g, '');
                           let formatted = '';
                           for(let i=0; i<val.length; i++) {
                             if(i > 0 && i % 4 === 0) formatted += '-';
@@ -828,6 +838,64 @@ const Settings = () => {
                     <option value="57mm">رسید ۵۷ میلیمتری (کارتخوان)</option>
                   </select>
                 </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* تنظیمات چاپ فاکتور */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden transition-all">
+          <button
+            type="button"
+            onClick={() => toggleSection('printOptions')}
+            className="w-full p-5 flex items-center justify-between text-right bg-slate-50/70 hover:bg-slate-100/70 transition-colors cursor-pointer border-b border-slate-100"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+                <Printer size={22} />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800 text-base">تنظیمات اطلاعات روی فاکتور</h3>
+                <p className="text-xs text-slate-500 mt-0.5">انتخاب مواردی که تمایل دارید هنگام چاپ فاکتور نمایش داده شوند</p>
+              </div>
+            </div>
+            <div className="text-slate-400 p-1">
+              {openSections.printOptions ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </div>
+          </button>
+          
+          {openSections.printOptions && (
+            <div className="p-6 animate-in fade-in slide-in-from-top-4 bg-white">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {[
+                  { id: 'showLogo', label: 'نمایش لوگو / مهر' },
+                  { id: 'showAddress', label: 'نمایش آدرس املاک' },
+                  { id: 'showPhones', label: 'نمایش شماره‌های تماس املاک' },
+                  { id: 'showBank', label: 'نمایش اطلاعات حساب بانکی' },
+                  { id: 'showNationalId', label: 'نمایش شناسه ملی / کد ملی' },
+                  { id: 'showEconomicCode', label: 'نمایش کد اقتصادی' }
+                ].map((item) => (
+                  <label key={item.id} className="flex items-center gap-3 p-4 border border-slate-100 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+                    <div className="relative flex items-center">
+                      <input 
+                        type="checkbox" 
+                        className="peer sr-only"
+                        checked={formData.printOptions?.[item.id as keyof typeof formData.printOptions] !== false}
+                        onChange={(e) => {
+                          setFormData({
+                            ...formData, 
+                            printOptions: {
+                              ...formData.printOptions,
+                              [item.id]: e.target.checked
+                            }
+                          });
+                        }}
+                      />
+                      <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600 shadow-inner"></div>
+                    </div>
+                    <span className="text-sm font-semibold text-slate-700 select-none">{item.label}</span>
+                  </label>
+                ))}
               </div>
             </div>
           )}

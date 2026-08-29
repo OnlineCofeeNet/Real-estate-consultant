@@ -71,3 +71,36 @@ body.blue-theme .bg-emerald-600 { background-color: #2563eb; }
 body.blue-theme .hover\:bg-emerald-700:hover { background-color: #1d4ed8; }
 body.blue-theme .focus\:ring-emerald-500:focus { --tw-ring-color: #3b82f6; }
 
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #invoice-print-area, #invoice-print-area * {
+    visibility: visible;
+  }
+  #invoice-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 20px;
+    border: none;
+    box-shadow: none;
+  }
+  
+  /* Reset background and text colors for print to save ink */
+  body.dark-mode #invoice-print-area,
+  body.dark-mode #invoice-print-area * {
+    color: #000 !important;
+    background-color: transparent !important;
+    border-color: #ddd !important;
+  }
+  
+  /* Force hide the buttons container within the modal during print if needed */
+  .print-hide, .print-hide * {
+    display: none !important;
+  }
+}
+
+
