@@ -114,6 +114,11 @@ export interface Settings {
 
   // Automation & Defaults
   autoSendInvoices: boolean;
+  smsProvider?: 'none' | 'farazsms' | 'smsir';
+  smsToken?: string;
+  smsLineNumber?: string;
+  autoSendSmsInvoice?: boolean;
+  smsTemplateText?: string;
   autoSendChequeReminder?: boolean;
   autoSendRentReminder?: boolean;
   baleToken: string;
