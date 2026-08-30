@@ -14,10 +14,37 @@ import Customers from './pages/Customers';
 import Contracts from './pages/Contracts';
 import Settings from './pages/Settings';
 import Help from './pages/Help';
+import { doAutoBackup, checkAndRestoreAutoBackup } from './utils/BackupManager';
 import { useAutoMessages } from './hooks/useAutoMessages';
 
 export default function App() {
   useAutoMessages();
+
+  useEffect(() => {
+    // On load, check for auto backup
+    checkAndRestoreAutoBackup();
+
+    // On exit / hide, do auto backup
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        doAutoBackup();
+      }
+    };
+    
+    // Fallback for beforeunload
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      doAutoBackup();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
+
   const settings = useLiveQuery(() => db.settings.get(1));
 
   useEffect(() => {

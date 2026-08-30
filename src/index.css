@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.css');
+@import url('https://cdn.fontcdn.ir/Font/Persian/IRANSans/IRANSans.css');
 
 @layer utilities {
   .animate-in {
@@ -31,8 +33,6 @@
 }
 
 /* Persian Font Settings */
-@import url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.css');
-@import url('https://cdn.fontcdn.ir/Font/Persian/IRANSans/IRANSans.css');
 
 body {
   font-family: 'Vazir', sans-serif;

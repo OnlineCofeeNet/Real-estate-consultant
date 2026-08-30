@@ -111,6 +111,7 @@ export interface Settings {
   invoiceMessageSeller?: string;
   invoiceMessageTenant?: string;
   invoiceMessageLandlord?: string;
+  invoiceDescription?: string;
 
   // Automation & Defaults
   autoSendInvoices: boolean;

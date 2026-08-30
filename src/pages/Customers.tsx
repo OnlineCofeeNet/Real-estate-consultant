@@ -19,6 +19,8 @@ import {
   UserCheck,
   Filter,
   Smartphone,
+  Bot,
+  RefreshCw,
 } from "lucide-react";
 import type { Customer, Settings, Contract } from "../types";
 import toast from "react-hot-toast";
@@ -60,14 +62,16 @@ const initialCustomerForm: Partial<Customer> = {
 
 const Customers = () => {
   const [search, setSearch] = useState("");
-  const [statusFilter,
-  Smartphone, setStatusFilter] = useState<
+  const [statusFilter, setStatusFilter] = useState<
     "all" | "uncollected_cheque" | "debt" | "landlord" | "buyer_landlord"
   >("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
   const [selectedCustomers, setSelectedCustomers] = useState<number[]>([]);
   const [messageText, setMessageText] = useState("");
+
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [customerToDelete, setCustomerToDelete] = useState<number | null>(null);
 
   const settings = useLiveQuery(() => db.settings.get(1));
   const contracts = useLiveQuery(() => db.contracts.toArray());
@@ -182,8 +186,7 @@ const Customers = () => {
     }
 
     return list;
-  }, [allCustomers, search, statusFilter,
-  Smartphone, contracts]);
+  }, [allCustomers, search, statusFilter, contracts]);
 
   const counts = useMemo(() => {
     if (!allCustomers)
@@ -216,7 +219,21 @@ const Customers = () => {
     };
   }, [allCustomers, contracts]);
 
-  const customers = filteredCustomers;
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState<number | "all">(10);
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter]);
+
+  const paginatedCustomers = React.useMemo(() => {
+    if (pageSize === "all") return filteredCustomers;
+    const start = (currentPage - 1) * pageSize;
+    return filteredCustomers.slice(start, start + pageSize);
+  }, [filteredCustomers, currentPage, pageSize]);
+
+  const totalPages = pageSize === "all" ? 1 : Math.ceil(filteredCustomers.length / pageSize);
+  const customers = paginatedCustomers;
 
   const [formData, setFormData] =
     useState<Partial<Customer>>(initialCustomerForm);
@@ -284,10 +301,17 @@ const Customers = () => {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (window.confirm("آیا از حذف این مشتری مطمئن هستید؟")) {
-      await db.customers.delete(id);
+  const handleDeleteClick = (id: number) => {
+    setCustomerToDelete(id);
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (customerToDelete !== null) {
+      await db.customers.delete(customerToDelete);
       toast.success("مشتری حذف شد");
+      setIsDeleteModalOpen(false);
+      setCustomerToDelete(null);
     }
   };
 
@@ -349,6 +373,46 @@ const Customers = () => {
       }
     };
     reader.readAsBinaryString(file);
+  };
+
+  const syncFromBot = async () => {
+    try {
+      const toastId = toast.loading("در حال دریافت مخاطبین از ربات...");
+      const res = await axios.get("/api/bot/connected-users");
+      if (res.data?.success && res.data.users) {
+        let imported = 0;
+        const currentCustomers = await db.customers.toArray();
+        for (const user of res.data.users) {
+          if (user.phone) {
+            const cleanPhone = toEnglishDigits(user.phone).trim();
+            const exists = currentCustomers.some(
+              (c) => toEnglishDigits(c.phone || "").trim() === cleanPhone,
+            );
+            if (!exists) {
+              await db.customers.put({
+                fullName: user.fullName || user.username || "مشتری از ربات",
+                phone: cleanPhone,
+                telegramId: user.platform === "telegram" ? user.chatId : "",
+                baleId: user.platform === "bale" ? user.chatId : "",
+                rubikaId: user.platform === "rubika" ? user.chatId : "",
+                createdAt: Date.now(),
+                roles: [],
+                customerType: "other",
+                nationalId: "",
+              });
+              imported++;
+            }
+          }
+        }
+        toast.success(`همگام‌سازی تکمیل شد. ${toPersianDigits(imported)} مشتری جدید اضافه گردید.`, {
+          id: toastId,
+        });
+      } else {
+        toast.error("خطا در دریافت اطلاعات از ربات", { id: toastId });
+      }
+    } catch (err) {
+      toast.error("خطا در ارتباط با سرور", { id: "bot-sync" });
+    }
   };
 
   const handleSendSms = async () => {
@@ -428,25 +492,25 @@ const Customers = () => {
       const finalMessageText = appendAgencySignature(rawText, settings);
 
       const activePlatforms = [];
-      if (settings?.telegramToken && (customer.telegramId || customer.phone)) {
+      if (settings?.telegramToken && (customer.phone)) {
         activePlatforms.push({
           name: "telegram",
           token: settings.telegramToken,
-          id: customer.telegramId || customer.phone,
+          id: customer.phone,
         });
       }
-      if (settings?.baleToken && (customer.baleId || customer.phone)) {
+      if (settings?.baleToken && (customer.phone)) {
         activePlatforms.push({
           name: "bale",
           token: settings.baleToken,
-          id: customer.baleId || customer.phone,
+          id: customer.phone,
         });
       }
-      if (settings?.rubikaToken && (customer.rubikaId || customer.phone)) {
+      if (settings?.rubikaToken && (customer.phone)) {
         activePlatforms.push({
           name: "rubika",
           token: settings.rubikaToken,
-          id: customer.rubikaId || customer.phone,
+          id: customer.phone,
         });
       }
 
@@ -578,6 +642,13 @@ const Customers = () => {
             </button>
           )}
 
+          <button
+            onClick={syncFromBot}
+            className="bg-indigo-50 border border-indigo-200 text-indigo-700 px-3 py-2 rounded-xl flex items-center gap-2 hover:bg-indigo-100 transition-colors shadow-sm text-sm font-bold"
+            title="مخاطبینی که در ربات استارت زده‌اند را به لیست مشتریان اضافه می‌کند"
+          >
+            <Bot size={18} /> دریافت از ربات
+          </button>
           <button
             onClick={exportToExcel}
             className="bg-white border border-slate-200 text-slate-700 px-3 py-2 rounded-xl flex items-center gap-2 hover:bg-slate-50 transition-colors shadow-sm text-sm"
@@ -938,7 +1009,7 @@ const Customers = () => {
                           <Edit size={18} />
                         </button>
                         <button
-                          onClick={() => handleDelete(customer.id as number)}
+                          onClick={() => handleDeleteClick(customer.id as number)}
                           className="text-slate-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition-colors"
                           title="حذف مشتری"
                         >
@@ -951,6 +1022,78 @@ const Customers = () => {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Pagination Controls */}
+        <div className="p-4 border-t border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4 bg-slate-50 rounded-b-xl">
+          <div className="flex flex-col md:flex-row items-center gap-3 text-sm text-slate-600">
+            <div className="flex items-center gap-2">
+              <span>تعداد نمایش:</span>
+              <select
+                className="border border-slate-200 rounded-lg p-1.5 bg-white outline-none focus:border-emerald-500 font-mono text-sm"
+                value={pageSize === "all" ? "all" : pageSize}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setPageSize(val === "all" ? "all" : Number(val));
+                }}
+              >
+                <option value={10}>۱۰ عددی</option>
+                <option value={50}>۵۰ عددی</option>
+                <option value="all">نمایش همه</option>
+              </select>
+            </div>
+            <span className="md:mr-4 font-mono">
+              نمایش {(currentPage - 1) * (pageSize === "all" ? filteredCustomers.length : pageSize as number) + (filteredCustomers.length > 0 ? 1 : 0)} تا {pageSize === "all" ? filteredCustomers.length : Math.min(currentPage * (pageSize as number), filteredCustomers.length)} از {filteredCustomers.length} مشتری
+            </span>
+          </div>
+
+          {pageSize !== "all" && totalPages > 1 && (
+            <div className="flex items-center gap-1" dir="ltr">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="p-1.5 px-3 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-xs transition-colors"
+              >
+                قبلی
+              </button>
+              
+              <div className="flex items-center gap-1 mx-2">
+                {[...Array(totalPages)].map((_, i) => {
+                  if (
+                    totalPages > 5 &&
+                    i !== 0 &&
+                    i !== totalPages - 1 &&
+                    Math.abs(currentPage - 1 - i) > 1
+                  ) {
+                    if (Math.abs(currentPage - 1 - i) === 2) return <span key={i} className="px-1 text-slate-400">...</span>;
+                    return null;
+                  }
+                  
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => setCurrentPage(i + 1)}
+                      className={`w-8 h-8 rounded-lg text-sm font-bold transition-colors ${
+                        currentPage === i + 1
+                          ? "bg-emerald-600 text-white border-transparent"
+                          : "border border-slate-200 text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      {i + 1}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="p-1.5 px-3 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-xs transition-colors"
+              >
+                بعدی
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1481,6 +1624,34 @@ const Customers = () => {
                   className="flex-1 bg-emerald-600 text-white rounded-xl py-3 hover:bg-emerald-700 font-bold shadow-sm shadow-emerald-600/20 transition-colors flex justify-center items-center gap-2 text-sm"
                 >
                   <Smartphone size={18} /> پیامک (SMS)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Delete Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-xl animate-in zoom-in-95">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 size={32} />
+              </div>
+              <h3 className="text-xl font-bold text-slate-800 mb-2">حذف مشتری</h3>
+              <p className="text-slate-500 mb-6 text-sm">آیا از حذف این مشتری مطمئن هستید؟ این عمل غیرقابل بازگشت است.</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className="flex-1 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-200 transition-colors"
+                >
+                  انصراف
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition-colors shadow-sm shadow-red-600/20"
+                >
+                  حذف
                 </button>
               </div>
             </div>

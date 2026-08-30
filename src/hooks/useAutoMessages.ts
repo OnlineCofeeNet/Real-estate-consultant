@@ -43,9 +43,9 @@ export const useAutoMessages = () => {
           if (alreadySentToday) return;
 
           const activePlatforms = [];
-          if (settings.telegramToken && (customer.telegramId || customer.phone)) activePlatforms.push({ name: 'telegram', token: settings.telegramToken, id: customer.telegramId || customer.phone });
-          if (settings.baleToken && (customer.baleId || customer.phone)) activePlatforms.push({ name: 'bale', token: settings.baleToken, id: customer.baleId || customer.phone });
-          if (settings.rubikaToken && (customer.rubikaId || customer.phone)) activePlatforms.push({ name: 'rubika', token: settings.rubikaToken, id: customer.rubikaId || customer.phone });
+          if (settings.telegramToken && (customer.phone)) activePlatforms.push({ name: 'telegram', token: settings.telegramToken, id: customer.phone });
+          if (settings.baleToken && (customer.phone)) activePlatforms.push({ name: 'bale', token: settings.baleToken, id: customer.phone });
+          if (settings.rubikaToken && (customer.phone)) activePlatforms.push({ name: 'rubika', token: settings.rubikaToken, id: customer.phone });
 
           for (const p of activePlatforms) {
             const cleanChatId = toEnglishDigits(p.id).trim();

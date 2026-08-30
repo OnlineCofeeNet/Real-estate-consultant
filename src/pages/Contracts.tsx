@@ -192,9 +192,9 @@ const Contracts = () => {
   const sendAutoMessage = async (customer: Customer, text: string) => {
     const finalMessage = appendAgencySignature(text, settings);
     const activePlatforms = [];
-    if (settings?.telegramToken && (customer.telegramId || customer.phone)) activePlatforms.push({ name: 'telegram', token: settings.telegramToken, id: customer.telegramId || customer.phone });
-    if (settings?.baleToken && (customer.baleId || customer.phone)) activePlatforms.push({ name: 'bale', token: settings.baleToken, id: customer.baleId || customer.phone });
-    if (settings?.rubikaToken && (customer.rubikaId || customer.phone)) activePlatforms.push({ name: 'rubika', token: settings.rubikaToken, id: customer.rubikaId || customer.phone });
+    if (settings?.telegramToken && (customer.phone)) activePlatforms.push({ name: 'telegram', token: settings.telegramToken, id: customer.phone });
+    if (settings?.baleToken && (customer.phone)) activePlatforms.push({ name: 'bale', token: settings.baleToken, id: customer.phone });
+    if (settings?.rubikaToken && (customer.phone)) activePlatforms.push({ name: 'rubika', token: settings.rubikaToken, id: customer.phone });
 
     for (const p of activePlatforms) {
       const cleanChatId = toEnglishDigits(p.id).trim();
@@ -268,14 +268,14 @@ const Contracts = () => {
 
     for (const { customer } of recipients) {
       const activePlatforms = [];
-      if ((resendPlatform === 'all' || resendPlatform === 'telegram') && settings?.telegramToken && (customer.telegramId || customer.phone)) {
-        activePlatforms.push({ name: 'telegram', token: settings.telegramToken, id: customer.telegramId || customer.phone });
+      if ((resendPlatform === 'all' || resendPlatform === 'telegram') && settings?.telegramToken && (customer.phone)) {
+        activePlatforms.push({ name: 'telegram', token: settings.telegramToken, id: customer.phone });
       }
-      if ((resendPlatform === 'all' || resendPlatform === 'bale') && settings?.baleToken && (customer.baleId || customer.phone)) {
-        activePlatforms.push({ name: 'bale', token: settings.baleToken, id: customer.baleId || customer.phone });
+      if ((resendPlatform === 'all' || resendPlatform === 'bale') && settings?.baleToken && (customer.phone)) {
+        activePlatforms.push({ name: 'bale', token: settings.baleToken, id: customer.phone });
       }
-      if ((resendPlatform === 'all' || resendPlatform === 'rubika') && settings?.rubikaToken && (customer.rubikaId || customer.phone)) {
-        activePlatforms.push({ name: 'rubika', token: settings.rubikaToken, id: customer.rubikaId || customer.phone });
+      if ((resendPlatform === 'all' || resendPlatform === 'rubika') && settings?.rubikaToken && (customer.phone)) {
+        activePlatforms.push({ name: 'rubika', token: settings.rubikaToken, id: customer.phone });
       }
 
       for (const p of activePlatforms) {
@@ -1526,6 +1526,14 @@ const Contracts = () => {
                     {contractData.party2Role === 'فروشنده' && settings?.invoiceMessageSeller && <p>{settings.invoiceMessageSeller}</p>}
                     {contractData.party2Role === 'موجر' && settings?.invoiceMessageLandlord && <p>{settings.invoiceMessageLandlord}</p>}
                     {contractData.party2Role === 'مستأجر' && settings?.invoiceMessageTenant && <p>{settings.invoiceMessageTenant}</p>}
+                  </div>
+                )}
+
+                {/* توضیحات و شرایط کلی فاکتور */}
+                {settings?.invoiceDescription && (
+                  <div className="mb-6 p-4 bg-slate-50 rounded-lg text-sm text-slate-700 whitespace-pre-wrap border border-slate-200">
+                    <p className="font-bold mb-1 text-slate-500 text-xs">توضیحات فاکتور:</p>
+                    {settings.invoiceDescription}
                   </div>
                 )}
 

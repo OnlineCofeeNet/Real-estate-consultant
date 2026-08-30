@@ -27,7 +27,9 @@ import {
   Users,
   Smartphone,
   ExternalLink,
-  Printer
+  Printer,
+  MessageCircle,
+  Link2
 } from 'lucide-react';
 import type { Settings as SettingsType } from '../types';
 import { IRANIAN_BANKS, getAgencySignature, toPersianDigits, toEnglishDigits, formatTemplateMessage } from '../utils/format';
@@ -74,6 +76,7 @@ const defaultSettings: SettingsType = {
   invoiceMessageSeller: '',
   invoiceMessageTenant: '',
   invoiceMessageLandlord: '',
+  invoiceDescription: '',
   defaultMessages: {
     welcome: 'سلام 🌹\nبه سامانه هوشمند اطلاع‌رسانی {نام_املاک} خوش آمدید.\n\nجهت استفاده از خدمات، دریافت صورتحساب‌ها، فاکتورها و دسترسی به اطلاعات قراردادها در خدمت شما هستیم.',
     birthday: 'زادروزتان خجسته باد! با بهترین آرزوها، مشاور املاک شما.',
@@ -275,6 +278,37 @@ const Settings = () => {
   };
 
   // پاکسازی وبهوک قدیمی تلگرام و قطع پیام‌های ناخواسته مانند املاک فراز
+  
+  const handleSetWebhook = async (platform: 'telegram' | 'bale') => {
+    const token = platform === 'telegram' ? formData.telegramToken : formData.baleToken;
+    const platformLabel = platform === 'telegram' ? 'تلگرام' : 'بله';
+    if (!token || !token.trim()) {
+      toast.error(`لطفاً ابتدا توکن ربات ${platformLabel} را وارد کنید`);
+      return;
+    }
+    const toastId = toast.loading(`در حال تنظیم اتصال پایدار (وب‌هوک) برای ${platformLabel}...`);
+    try {
+      const toSave = { ...formData };
+      await db.settings.put(toSave, 1);
+      
+      // We send the current frontend origin as the base URL for the webhook
+      const origin = window.location.origin;
+      const res = await axios.post('/api/bot/set-webhook', {
+        token,
+        platform,
+        url: origin
+      });
+      if (res.data?.success === false) {
+        toast.error(res.data?.details || res.data?.error || 'خطا در تنظیم وبهوک', { id: toastId });
+        return;
+      }
+      toast.success(res.data?.message || 'اتصال پایدار با موفقیت برقرار شد!', { id: toastId, duration: 4000 });
+      if (platform === 'telegram') await checkTelegramBotStatus(token);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.details || 'خطا در ارتباط با سرور برای تنظیم وبهوک', { id: toastId });
+    }
+  };
+
   const handleClearWebhook = async () => {
     if (!formData.telegramToken || !formData.telegramToken.trim()) {
       toast.error('لطفاً ابتدا توکن ربات تلگرام را وارد کنید');
@@ -941,6 +975,10 @@ const Settings = () => {
                   <label className="block text-xs font-bold text-slate-500 mb-1">پیام اختصاصی برای موجر</label>
                   <textarea className="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-orange-500 outline-none" rows={2} value={formData.invoiceMessageLandlord || ''} onChange={e => setFormData({...formData, invoiceMessageLandlord: e.target.value})} placeholder="با تشکر از همکاری شایسته در تنظیم قرارداد اجاره..."></textarea>
                 </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">توضیحات و شرایط کلی فاکتور</label>
+                  <textarea className="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-orange-500 outline-none" rows={3} value={formData.invoiceDescription || ''} onChange={e => setFormData({...formData, invoiceDescription: e.target.value})} placeholder="متن شرایط، توضیحات حقوقی، یا هر متنی که می‌خواهید زیر تمام فاکتورها چاپ شود..."></textarea>
+                </div>
               </div>
             </div>
           )}
@@ -981,6 +1019,35 @@ const Settings = () => {
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">توکن ربات روبیکا (Rubika Bot API)</label>
                   <input type="password" placeholder="Rubika Token" className="w-full border border-slate-200 bg-slate-50 rounded-xl p-2.5 focus:ring-2 focus:ring-teal-500 outline-none transition-all text-left font-mono text-xs" dir="ltr" value={formData.rubikaToken || ''} onChange={e => setFormData({...formData, rubikaToken: e.target.value})} />
+                </div>
+              </div>
+
+              
+              <h3 className="text-lg font-bold border-b border-slate-100 pb-3 text-indigo-700 flex items-center gap-2 mt-12">
+                <MessageCircle size={20} />
+                تنظیمات پنل پیامک
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-indigo-50/40 p-4 rounded-xl border border-indigo-100/50">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">ارائه‌دهنده پیامک</label>
+                  <select 
+                    className="w-full border border-slate-200 bg-white rounded-xl p-2.5 focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-sm" 
+                    value={formData.smsProvider || 'none'} 
+                    onChange={e => setFormData({...formData, smsProvider: e.target.value as any})}
+                  >
+                    <option value="none">غیرفعال (عدم ارسال پیامک)</option>
+                    <option value="farazsms">فراز اس‌ام‌اس (FarazSMS)</option>
+                    <option value="smsir">اس‌ام‌اس دات آی‌آر (SMS.ir)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">کلید دسترسی (API Key)</label>
+                  <input type="password" placeholder="توکن پنل پیامک" className="w-full border border-slate-200 bg-white rounded-xl p-2.5 focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-left font-mono text-xs" dir="ltr" value={formData.smsToken || ''} onChange={e => setFormData({...formData, smsToken: e.target.value})} disabled={formData.smsProvider === 'none'} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">شماره خط ارسال</label>
+                  <input type="text" placeholder="مثال: 3000505" className="w-full border border-slate-200 bg-white rounded-xl p-2.5 focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-left font-mono text-xs" dir="ltr" value={formData.smsLineNumber || ''} onChange={e => setFormData({...formData, smsLineNumber: e.target.value})} disabled={formData.smsProvider === 'none'} />
                 </div>
               </div>
 
@@ -1059,15 +1126,28 @@ const Settings = () => {
                       >
                         <RefreshCw size={14} className={isCheckingBot ? 'animate-spin' : ''} />
                       </button>
-                      <button
-                        type="button"
-                        onClick={handleClearWebhook}
-                        disabled={isClearingWebhook || !formData.telegramToken}
-                        className="px-2.5 py-1 bg-sky-100 hover:bg-sky-200 text-sky-800 text-[11px] font-bold rounded-lg transition-all flex items-center gap-1 disabled:opacity-40 cursor-pointer"
-                        title="پاکسازی وبهوک قبلی"
-                      >
-                        <span>{isClearingWebhook ? '...' : 'پاکسازی وبهوک'}</span>
-                      </button>
+                      
+<div className="flex gap-2">
+  <button
+    type="button"
+    onClick={() => handleSetWebhook('telegram')}
+    disabled={isClearingWebhook || !formData.telegramToken}
+    className="flex-1 bg-white border border-slate-200 text-slate-700 text-xs font-bold p-2.5 rounded-lg hover:bg-teal-50 hover:text-teal-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+  >
+    {isClearingWebhook ? <RefreshCw size={14} className="animate-spin" /> : <Link2 size={14} />}
+    تنظیم وب‌هوک (اتصال مکرر)
+  </button>
+  <button
+    type="button"
+    onClick={handleClearWebhook}
+    disabled={isClearingWebhook || !formData.telegramToken}
+    className="bg-white border border-slate-200 text-slate-700 text-xs font-bold p-2.5 rounded-lg hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+    title="پاکسازی وبهوک (ارتباط مستقیم / Polling)"
+  >
+    <RefreshCw size={14} className={isClearingWebhook ? 'animate-spin' : ''} />
+  </button>
+</div>
+
                       <a
                         href={`https://t.me/${botInfo?.bot?.username || 'Amlake_Faraz_bot'}`}
                         target="_blank"
