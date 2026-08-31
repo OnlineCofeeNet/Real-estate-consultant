@@ -131,8 +131,20 @@ const Contracts = () => {
       toast.error('لطفا اطلاعات طرفین را کامل کنید');
       return;
     }
+    
+    if (!contractData.contractNumber) {
+      toast.error('شماره قرارداد الزامی است');
+      return;
+    }
 
     try {
+      // Check for duplicate contract number
+      const existingContract = await db.contracts.where('contractNumber').equals(contractData.contractNumber).first();
+      if (existingContract) {
+        toast.error('شماره قرارداد وارد شده تکراری است. امکان ثبت دو قرارداد با یک شماره وجود ندارد.');
+        return;
+      }
+
       const newId = await db.contracts.add({
         ...contractData,
         status: 'completed',

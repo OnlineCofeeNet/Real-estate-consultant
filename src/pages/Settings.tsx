@@ -78,7 +78,7 @@ const defaultSettings: SettingsType = {
   invoiceMessageLandlord: '',
   invoiceDescription: '',
   defaultMessages: {
-    welcome: 'سلام 🌹\nبه سامانه هوشمند اطلاع‌رسانی {نام_املاک} خوش آمدید.\n\nجهت استفاده از خدمات، دریافت صورتحساب‌ها، فاکتورها و دسترسی به اطلاعات قراردادها در خدمت شما هستیم.',
+    welcome: 'سلام 🌹\nبه سامانه هوشمند اطلاعرسانی {نام_املاک} خوش آمدید.\n\nجهت استفاده از خدمات، دریافت صورتحسابها، فاکتورها و دسترسی به اطلاعات قراردادها در خدمت شما هستیم.',
     birthday: 'زادروزتان خجسته باد! با بهترین آرزوها، مشاور املاک شما.',
     contractExpiry: 'مشتری گرامی، موعد قرارداد شما به زودی به پایان می‌رسد. جهت تمدید با ما در تماس باشید.',
     rentPayment: 'مستأجر گرامی، یادآوری موعد پرداخت اجاره‌بها سررسید شده است.',
@@ -1062,6 +1062,22 @@ const Settings = () => {
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">شماره خط ارسال</label>
                   <input type="text" placeholder="مثال: 3000505" className="w-full border border-slate-200 bg-white rounded-xl p-2.5 focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-left font-mono text-xs" dir="ltr" value={formData.smsLineNumber || ''} onChange={e => setFormData({...formData, smsLineNumber: e.target.value})} disabled={formData.smsProvider === 'none'} />
+                </div>
+              
+                <div className="col-span-1 md:col-span-3 mt-2">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                    متن پیامک اطلاع‌رسانی صدور فاکتور (ارسال به تلفن مشتری)
+                  </label>
+                  <textarea
+                    placeholder="فاکتور شما صادر شد. مبلغ: {amount} تومان"
+                    className="w-full border border-slate-200 bg-white rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-sm min-h-[80px]"
+                    value={formData.smsTemplateText || ''}
+                    onChange={e => setFormData({...formData, smsTemplateText: e.target.value})}
+                    disabled={formData.smsProvider === 'none'}
+                  />
+                  <p className="text-xs text-slate-400 mt-1 font-mono">
+                    متغیرهای قابل استفاده: { '{name}' }, { '{contract}' }, { '{amount}' }
+                  </p>
                 </div>
               </div>
 

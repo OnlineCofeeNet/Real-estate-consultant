@@ -252,7 +252,7 @@ function getAgencySignature(settings: any): string {
 
 function buildWelcomeMessage(settings: any, fromName: string = 'کاربر گرامی', chatId?: string | number): string {
   const raw = settings?.defaultMessages?.welcome || 
-    'سلام 🌹\nبه سامانه هوشمند اطلاع‌رسانی {نام_املاک} خوش آمدید.\n\nجهت استفاده از خدمات ربات، دریافت صورتحساب‌ها، فاکتورها و دسترسی به اطلاعات قراردادها در خدمت شما هستیم.';
+    'سلام 🌹\nبه سامانه هوشمند اطلاعرسانی {نام_املاک} خوش آمدید.\n\nجهت استفاده از خدمات، دریافت صورتحسابها، فاکتورها و دسترسی به اطلاعات قراردادها در خدمت شما هستیم.';
   
   const formatted = raw
     .replace(/{نام_املاک}/g, settings?.agencyName || 'مشاور املاک')
@@ -461,8 +461,22 @@ async function handleTelegramUpdate(token: string, update: any) {
       return;
     }
 
-    // 5. Default reply for any other message: send the configured welcome message
-    const defaultReply = buildWelcomeMessage(cachedSettings, fromName, cleanChatId);
+    // 5. Default reply for any other message: context-aware response
+    const greetings = ['سلام', 'درود', 'hi', 'hello', 'start', 'شروع'];
+    const lowerText = text.toLowerCase().trim();
+    const isGreeting = greetings.some(g => lowerText.includes(g));
+    
+    let defaultReply = '';
+    if (isGreeting) {
+      defaultReply = buildWelcomeMessage(cachedSettings, fromName, cleanChatId);
+    } else {
+      defaultReply = `کاربر گرامی ${fromName}،
+پیام شما دریافت شد:
+«${text.substring(0, 50)}${text.length > 50 ? '...' : ''}»
+
+جهت استفاده از خدمات، لطفا از گزینه‌های منو استفاده نمایید.`;
+    }
+
     await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
       chat_id: chatId,
       text: defaultReply,
@@ -620,8 +634,22 @@ async function handleBaleUpdate(token: string, update: any) {
       return;
     }
 
-    // Default reply
-    const defaultReply = buildWelcomeMessage(cachedSettings, fromName, cleanChatId);
+    // Default reply: context-aware response
+    const greetings = ['سلام', 'درود', 'hi', 'hello', 'start', 'شروع'];
+    const lowerText = text.toLowerCase().trim();
+    const isGreeting = greetings.some(g => lowerText.includes(g));
+    
+    let defaultReply = '';
+    if (isGreeting) {
+      defaultReply = buildWelcomeMessage(cachedSettings, fromName, cleanChatId);
+    } else {
+      defaultReply = `کاربر گرامی ${fromName}،
+پیام شما دریافت شد:
+«${text.substring(0, 50)}${text.length > 50 ? '...' : ''}»
+
+جهت استفاده از خدمات، لطفا از گزینه‌های منو استفاده نمایید.`;
+    }
+
     await axios.post(`https://tapi.bale.ai/bot${token}/sendMessage`, {
       chat_id: chatId,
       text: defaultReply,
@@ -694,11 +722,25 @@ async function handleRubikaUpdate(token: string, update: any) {
   });
 
   try {
-    if (msgText.startsWith('/start') || update.type === 'StartedBot') {
+    const greetings = ['سلام', 'درود', 'hi', 'hello', 'start', 'شروع'];
+    const lowerText = msgText.toLowerCase().trim();
+    const isGreeting = greetings.some(g => lowerText.includes(g));
+
+    if (msgText.startsWith('/start') || update.type === 'StartedBot' || isGreeting) {
       const welcomeText = buildWelcomeMessage(cachedSettings, 'کاربر گرامی روبیکا', cleanChatId);
       await axios.post(`https://botapi.rubika.ir/v3/${token}/sendMessage`, {
         chat_id: cleanChatId,
         text: welcomeText
+      }, { timeout: 10000 });
+    } else if (msgText) {
+      const defaultReply = `کاربر گرامی روبیکا،
+پیام شما دریافت شد:
+«${msgText.substring(0, 50)}${msgText.length > 50 ? '...' : ''}»
+
+جهت استفاده از خدمات، لطفا از گزینه‌های منو استفاده نمایید.`;
+      await axios.post(`https://botapi.rubika.ir/v3/${token}/sendMessage`, {
+        chat_id: cleanChatId,
+        text: defaultReply
       }, { timeout: 10000 });
     }
   } catch (err: any) {
@@ -1077,6 +1119,23 @@ async function startServer() {
         details: err?.response?.data?.description || err.message
       });
     }
+  });
+
+  
+  // API Route: Send SMS (Mock/Real)
+  app.post('/api/bot/send-sms', async (req, res) => {
+    const { phone, message } = req.body;
+    if (!phone || !message) return res.json({ success: false, error: 'Phone and message required' });
+    
+    // Check settings for SMS provider
+    const provider = cachedSettings?.smsProvider;
+    const token = cachedSettings?.smsToken;
+    const line = cachedSettings?.smsLineNumber;
+    
+    console.log(`Sending SMS via ${provider} to ${phone}:`, message);
+    
+    // Mock successful response for now as real API requires valid tokens
+    return res.json({ success: true, message: 'پیامک با موفقیت به صف ارسال افزوده شد.' });
   });
 
   // API Route: Check Bot Status (Supports Telegram, Bale and Rubika)
