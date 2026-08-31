@@ -125,6 +125,9 @@ export interface Settings {
   baleToken: string;
   rubikaToken: string;
   telegramToken: string;
+  adminTelegramId?: string;
+  adminBaleId?: string;
+  adminRubikaId?: string;
   defaultMessages?: {
     welcome?: string;
     birthday: string;

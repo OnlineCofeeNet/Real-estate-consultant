@@ -1021,6 +1021,20 @@ const Settings = () => {
                   <input type="password" placeholder="Rubika Token" className="w-full border border-slate-200 bg-slate-50 rounded-xl p-2.5 focus:ring-2 focus:ring-teal-500 outline-none transition-all text-left font-mono text-xs" dir="ltr" value={formData.rubikaToken || ''} onChange={e => setFormData({...formData, rubikaToken: e.target.value})} />
                 </div>
               </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5" title="شناسه عددی (Chat ID) حساب ادمین برای دریافت اعلان‌ها و مدیریت از طریق ربات تلگرام">شناسه ادمین تلگرام (Admin Chat ID)</label>
+                  <input type="text" placeholder="مثال: 123456789" className="w-full border border-slate-200 bg-slate-50 rounded-xl p-2.5 focus:ring-2 focus:ring-teal-500 outline-none transition-all text-left font-mono text-xs" dir="ltr" value={formData.adminTelegramId || ''} onChange={e => setFormData({...formData, adminTelegramId: toEnglishDigits(e.target.value).trim()})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5" title="شناسه عددی (Chat ID) حساب ادمین برای دریافت اعلان‌ها و مدیریت از طریق ربات بله">شناسه ادمین بله (Admin Chat ID)</label>
+                  <input type="text" placeholder="مثال: 123456789" className="w-full border border-slate-200 bg-slate-50 rounded-xl p-2.5 focus:ring-2 focus:ring-teal-500 outline-none transition-all text-left font-mono text-xs" dir="ltr" value={formData.adminBaleId || ''} onChange={e => setFormData({...formData, adminBaleId: toEnglishDigits(e.target.value).trim()})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5" title="شناسه حساب ادمین برای مدیریت و اعلان از طریق ربات روبیکا">شناسه ادمین روبیکا</label>
+                  <input type="text" placeholder="Admin Rubika ID" className="w-full border border-slate-200 bg-slate-50 rounded-xl p-2.5 focus:ring-2 focus:ring-teal-500 outline-none transition-all text-left font-mono text-xs" dir="ltr" value={formData.adminRubikaId || ''} onChange={e => setFormData({...formData, adminRubikaId: e.target.value.trim()})} />
+                </div>
+              </div>
 
               
               <h3 className="text-lg font-bold border-b border-slate-100 pb-3 text-indigo-700 flex items-center gap-2 mt-12">

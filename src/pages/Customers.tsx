@@ -632,7 +632,28 @@ const Customers = () => {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          
           {selectedCustomers.length > 0 && (
+            <button
+              onClick={async () => {
+                if (window.confirm(`آیا از حذف ${selectedCustomers.length} مشتری انتخاب شده اطمینان دارید؟
+توجه: این عملیات غیرقابل بازگشت است.`)) {
+                  await db.transaction('rw', db.customers, async () => {
+                    for (const id of selectedCustomers) {
+                      await db.customers.delete(id);
+                    }
+                  });
+                  toast.success('مشتریان انتخاب شده با موفقیت حذف شدند.');
+                  setSelectedCustomers([]);
+                }
+              }}
+              className="bg-red-100 hover:bg-red-200 text-red-700 px-3.5 py-2.5 rounded-xl flex items-center gap-2 transition-colors shadow-sm font-bold animate-in fade-in zoom-in text-sm"
+            >
+              <Trash2 size={18} /> حذف ({toPersianDigits(selectedCustomers.length)})
+            </button>
+          )}
+          {selectedCustomers.length > 0 && (
+
             <button
               onClick={() => setIsMessageModalOpen(true)}
               className="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2.5 rounded-xl flex items-center gap-2 transition-colors shadow-sm font-bold animate-in fade-in zoom-in text-sm"
