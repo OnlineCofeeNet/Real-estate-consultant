@@ -36,6 +36,8 @@ const Dashboard = () => {
   const [isResending, setIsResending] = useState(false);
   const [activeGroupTab, setActiveGroupTab] = useState<'platform' | 'customer' | 'all'>('platform');
   const [logFilter, setLogFilter] = useState<'all' | 'failed' | 'sent'>('all');
+  const [logPage, setLogPage] = useState(1);
+  const LOGS_PER_PAGE = 15;
 
   if (!contracts || !customers || !messageLogs) return <div className="p-4 text-slate-500">در حال بارگذاری...</div>;
 
@@ -477,21 +479,21 @@ const Dashboard = () => {
             <div className="flex items-center bg-slate-100 p-0.5 rounded-lg text-xs font-bold">
               <button
                 type="button"
-                onClick={() => setLogFilter('all')}
+                onClick={() => { setLogFilter('all'); setLogPage(1); }}
                 className={`px-2.5 py-1 rounded-md transition-colors ${logFilter === 'all' ? 'bg-white shadow-xs text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
               >
                 همه ({toPersianDigits(messageLogs.length)})
               </button>
               <button
                 type="button"
-                onClick={() => setLogFilter('failed')}
+                onClick={() => { setLogFilter('failed'); setLogPage(1); }}
                 className={`px-2.5 py-1 rounded-md transition-colors ${logFilter === 'failed' ? 'bg-red-500 text-white' : 'text-red-600 hover:bg-red-50'}`}
               >
                 ناموفق ({toPersianDigits(failedLogs.length)})
               </button>
               <button
                 type="button"
-                onClick={() => setLogFilter('sent')}
+                onClick={() => { setLogFilter('sent'); setLogPage(1); }}
                 className={`px-2.5 py-1 rounded-md transition-colors ${logFilter === 'sent' ? 'bg-emerald-600 text-white' : 'text-emerald-600 hover:bg-emerald-50'}`}
               >
                 موفق ({toPersianDigits(sentLogs.length)})
@@ -541,7 +543,7 @@ const Dashboard = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {displayedLogs.slice(0, 15).map((log) => {
+                {displayedLogs.slice((logPage - 1) * LOGS_PER_PAGE, logPage * LOGS_PER_PAGE).map((log) => {
                   const isSelected = selectedLogIds.includes(log.id!);
                   return (
                     <tr key={log.id} className={`hover:bg-slate-50/70 transition-colors ${isSelected ? 'bg-amber-50/50' : ''}`}>
@@ -605,8 +607,28 @@ const Dashboard = () => {
                 })}
               </tbody>
             </table>
-            {displayedLogs.length > 15 && (
-              <p className="text-center text-slate-400 text-xs mt-4">تنها ۱۵ پیام اخیر نمایش داده می‌شود. برای مشاهده کامل لیست، خروجی اکسل بگیرید.</p>
+            {displayedLogs.length > LOGS_PER_PAGE && (
+              <div className="flex justify-between items-center mt-4 px-2">
+                <span className="text-xs text-slate-500">
+                  نمایش {toPersianDigits((logPage - 1) * LOGS_PER_PAGE + 1)} تا {toPersianDigits(Math.min(logPage * LOGS_PER_PAGE, displayedLogs.length))} از {toPersianDigits(displayedLogs.length)}
+                </span>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setLogPage(p => Math.max(1, p - 1))}
+                    disabled={logPage === 1}
+                    className="px-3 py-1 bg-white border border-slate-200 rounded text-xs disabled:opacity-50"
+                  >
+                    قبلی
+                  </button>
+                  <button
+                    onClick={() => setLogPage(p => p + 1)}
+                    disabled={logPage * LOGS_PER_PAGE >= displayedLogs.length}
+                    className="px-3 py-1 bg-white border border-slate-200 rounded text-xs disabled:opacity-50"
+                  >
+                    بعدی
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )}

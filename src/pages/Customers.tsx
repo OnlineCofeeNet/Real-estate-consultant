@@ -62,6 +62,11 @@ const initialCustomerForm: Partial<Customer> = {
 
 const Customers = () => {
   const [search, setSearch] = useState("");
+  const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState(false);
+  const [minAmount, setMinAmount] = useState("");
+  const [maxAmount, setMaxAmount] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [statusFilter, setStatusFilter] = useState<
     "all" | "uncollected_cheque" | "debt" | "landlord" | "buyer_landlord"
   >("all");
@@ -148,12 +153,24 @@ const Customers = () => {
       ),
     );
 
+    // 5. Total transactions & Last contract date
+    let totalTransactionAmount = 0;
+    let lastContractDate = '';
+    customerContracts.forEach(c => {
+      totalTransactionAmount += (c.totalPayable || 0);
+      if (!lastContractDate || (c.date && c.date > lastContractDate)) {
+        lastContractDate = c.date || '';
+      }
+    });
+
     return {
       hasUncollectedCheque,
       hasDebt,
       debtAmount: customer.debtAmount,
       isLandlord,
       isBuyer,
+      totalTransactionAmount,
+      lastContractDate
     };
   };
 
@@ -169,6 +186,25 @@ const Customers = () => {
         const phoneMatch = normalizeSearchQuery(c.phone).includes(q);
         const phone2Match = normalizeSearchQuery(c.phone2).includes(q);
         return nameMatch || nationalIdMatch || phoneMatch || phone2Match;
+      });
+    }
+
+    if (minAmount) {
+      list = list.filter(c => getCustomerStatus(c).totalTransactionAmount >= Number(minAmount));
+    }
+    if (maxAmount) {
+      list = list.filter(c => getCustomerStatus(c).totalTransactionAmount <= Number(maxAmount));
+    }
+    if (fromDate) {
+      list = list.filter(c => {
+        const lastDate = getCustomerStatus(c).lastContractDate;
+        return lastDate && lastDate >= fromDate;
+      });
+    }
+    if (toDate) {
+      list = list.filter(c => {
+        const lastDate = getCustomerStatus(c).lastContractDate;
+        return lastDate && lastDate <= toDate;
       });
     }
 
@@ -734,7 +770,50 @@ const Customers = () => {
               پاک کردن
             </button>
           )}
+          <button 
+            onClick={() => setIsAdvancedSearchOpen(!isAdvancedSearchOpen)}
+            className={`text-xs px-3 py-1.5 rounded-md border font-bold flex items-center gap-1 transition-colors ${isAdvancedSearchOpen ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+          >
+            <Filter size={14} /> جستجوی پیشرفته
+          </button>
         </div>
+
+        {isAdvancedSearchOpen && (
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-in slide-in-from-top-2">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">مبلغ تراکنش (از)</label>
+              <input type="number" value={minAmount} onChange={e => setMinAmount(e.target.value)} placeholder="مثلا 1000000" className="w-full text-sm border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 outline-none border bg-white" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">مبلغ تراکنش (تا)</label>
+              <input type="number" value={maxAmount} onChange={e => setMaxAmount(e.target.value)} placeholder="مثلا 50000000" className="w-full text-sm border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 outline-none border bg-white" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">آخرین قرارداد (از تاریخ)</label>
+              <DatePicker 
+                calendar={persian} 
+                locale={persian_fa} 
+                format="YYYY/MM/DD" 
+                value={fromDate} 
+                onChange={(dateObject) => setFromDate(dateObject ? dateObject.format() : '')} 
+                inputClass="w-full border border-slate-200 rounded-lg p-2 text-left font-mono text-sm bg-white focus:ring-2 focus:ring-emerald-500 outline-none" 
+                placeholder="1404/01/01" 
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">آخرین قرارداد (تا تاریخ)</label>
+              <DatePicker 
+                calendar={persian} 
+                locale={persian_fa} 
+                format="YYYY/MM/DD" 
+                value={toDate} 
+                onChange={(dateObject) => setToDate(dateObject ? dateObject.format() : '')} 
+                inputClass="w-full border border-slate-200 rounded-lg p-2 text-left font-mono text-sm bg-white focus:ring-2 focus:ring-emerald-500 outline-none" 
+                placeholder="1404/12/29" 
+              />
+            </div>
+          </div>
+        )}
 
         {search.trim() && (
           <div className="flex items-center justify-between text-xs text-slate-600 bg-slate-50 px-3 py-2 rounded-lg border border-slate-100">
