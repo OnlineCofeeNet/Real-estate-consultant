@@ -8,14 +8,14 @@ export interface Customer {
   contractEndDate?: string;
   contractStartDate?: string;
   rentPaymentDate?: string;
-  rentDueDay?: number; // روز موعد پرداخت اجاره در ماه (۱ الی ۳۱)
+  rentDueDay?: number;
   autoSendMessages?: boolean;
   description?: string;
-  roles?: string[]; // Made optional, as it's no longer required in creation
+  roles?: string[];
   customerType?: 'landlord' | 'tenant' | 'buyer' | 'seller' | 'other';
-  hasUncollectedCheque?: boolean; // دارای چک وصول نشده
-  hasDebt?: boolean; // دارای بدهی
-  debtAmount?: number; // مبلغ بدهی به تومان
+  hasUncollectedCheque?: boolean;
+  hasDebt?: boolean;
+  debtAmount?: number;
   messengerId?: string;
   telegramId?: string;
   rubikaId?: string;
@@ -38,8 +38,6 @@ export interface Contract {
   commission: number;
   tax: number;
   totalPayable: number;
-  
-  // Dual payment fields
   party1PaymentMethod: 'cash' | 'transfer' | 'cheque' | 'pos' | 'credit' | '';
   party2PaymentMethod: 'cash' | 'transfer' | 'cheque' | 'pos' | 'credit' | '';
   party1PosStatus?: 'pending' | 'success' | 'failed';
@@ -48,10 +46,9 @@ export interface Contract {
   party2PosReceipt?: string;
   party1ChequeDate?: string;
   party2ChequeDate?: string;
-  rentDueDay?: number; // روز موعد پرداخت اجاره در ماه (۱ الی ۳۱)
-  renewalDate?: string; // تاریخ تمدید قرارداد
-  renewedCount?: number; // تعداد دفعات تمدید
-
+  rentDueDay?: number;
+  renewalDate?: string;
+  renewedCount?: number;
   status: 'draft' | 'party1_paid' | 'completed' | 'cancelled' | 'renewed';
   createdAt: number;
 }
@@ -79,8 +76,6 @@ export interface Settings {
   accountNumber?: string;
   cardNumber?: string;
   shebaNumber?: string;
-  
-  // Extended Agency Info
   additionalPhones?: string[];
   telegramAgencyId?: string;
   instagramAgencyId?: string;
@@ -89,8 +84,6 @@ export interface Settings {
   socialLinks?: { platform: string; id: string }[];
   logoBase64?: string;
   stampBase64?: string;
-  
-  // Customization
   theme: string;
   themeEffect?: string;
   font?: string;
@@ -105,15 +98,11 @@ export interface Settings {
     showNationalId?: boolean;
     showEconomicCode?: boolean;
   };
-  
-  // Custom Messages
   invoiceMessageBuyer?: string;
   invoiceMessageSeller?: string;
   invoiceMessageTenant?: string;
   invoiceMessageLandlord?: string;
   invoiceDescription?: string;
-
-  // Automation & Defaults
   autoSendInvoices: boolean;
   smsProvider?: 'none' | 'farazsms' | 'smsir';
   smsToken?: string;
@@ -147,4 +136,18 @@ export interface MessageLog {
   message: string;
   status: 'sent' | 'failed' | 'pending';
   chatId?: string;
+}
+
+export type AuditAction = 'create' | 'update' | 'delete' | 'restore' | 'export' | 'import' | 'payment';
+export type AuditEntity = 'customer' | 'contract' | 'settings' | 'invoice' | 'payment' | 'backup' | 'system';
+
+export interface AuditLog {
+  id?: number;
+  action: AuditAction;
+  entity: AuditEntity;
+  entityId?: string;
+  description: string;
+  before?: unknown;
+  after?: unknown;
+  createdAt: number;
 }
