@@ -12,6 +12,7 @@ import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Customers from './pages/Customers';
 import Contracts from './pages/Contracts';
+import Finance from './pages/Finance';
 import Settings from './pages/Settings';
 import Help from './pages/Help';
 import { doAutoBackup, checkAndRestoreAutoBackup } from './utils/BackupManager';
@@ -21,24 +22,18 @@ export default function App() {
   useAutoMessages();
 
   useEffect(() => {
-    // On load, check for auto backup
     checkAndRestoreAutoBackup();
 
-    // On exit / hide, do auto backup
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        doAutoBackup();
-      }
+      if (document.visibilityState === 'hidden') doAutoBackup();
     };
-    
-    // Fallback for beforeunload
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+
+    const handleBeforeUnload = () => {
       doAutoBackup();
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('beforeunload', handleBeforeUnload);
-
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('beforeunload', handleBeforeUnload);
@@ -60,6 +55,7 @@ export default function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="contracts" element={<Contracts />} />
+          <Route path="finance" element={<Finance />} />
           <Route path="customers" element={<Customers />} />
           <Route path="settings" element={<Settings />} />
           <Route path="help" element={<Help />} />
