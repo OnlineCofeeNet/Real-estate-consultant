@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import type { Customer, Contract, Settings, MessageLog, AuditLog } from '../types';
+import type { Customer, Contract, Settings, MessageLog, AuditLog, Invoice, Payment } from '../types';
 
 export class AppDatabase extends Dexie {
   customers!: Table<Customer, number>;
@@ -7,6 +7,8 @@ export class AppDatabase extends Dexie {
   settings!: Table<Settings, number>;
   messageLogs!: Table<MessageLog, number>;
   auditLogs!: Table<AuditLog, number>;
+  invoices!: Table<Invoice, number>;
+  payments!: Table<Payment, number>;
 
   constructor() {
     super('RealEstateInvoiceDB');
@@ -18,13 +20,24 @@ export class AppDatabase extends Dexie {
       messageLogs: '++id, date, phone, status',
     });
 
-    // V2: immutable audit trail for business-critical operations.
     this.version(2).stores({
       customers: '++id, fullName, nationalId, phone, roles, createdAt',
       contracts: '++id, contractNumber, date, status, createdAt',
       settings: '++id',
       messageLogs: '++id, date, phone, status',
       auditLogs: '++id, action, entity, entityId, createdAt',
+    });
+
+    // V3: normalized financial records. Contracts remain the source of the deal;
+    // invoices and payments become the source of truth for receivables.
+    this.version(3).stores({
+      customers: '++id, fullName, nationalId, phone, roles, createdAt',
+      contracts: '++id, contractNumber, date, status, createdAt',
+      settings: '++id',
+      messageLogs: '++id, date, phone, status',
+      auditLogs: '++id, action, entity, entityId, createdAt',
+      invoices: '++id, invoiceNumber, contractId, customerId, status, issuedAt',
+      payments: '++id, invoiceId, contractId, status, method, paidAt, createdAt',
     });
   }
 }
@@ -67,11 +80,11 @@ db.on('populate', async () => {
     additionalPhones: [],
     socialLinks: [],
     defaultMessages: {
-      welcome: 'سلام 🌹\nبه سامانه هوشمند اطلاع‌رسانی {نام_املاک} خوش آمدید.\n\nجهت استفاده از خدمات ربات، دریافت صورتحساب‌ها، فاکتورها و دسترسی به اطلاعات قراردادها در خدمت شما هستیم.',
+      welcome: 'سلام 🌹\nبه سامانه هوشمند اطلاع‌رسانی {نام_املاک} خوش آمدید.',
       birthday: 'زادروزتان خجسته باد! با بهترین آرزوها، مشاور املاک شما.',
-      contractExpiry: 'مشتری گرامی، موعد قرارداد شما به زودی به پایان می‌رسد. جهت تمدید با ما در تماس باشید.',
-      rentPayment: 'مشتری گرامی، یادآوری می‌گردد موعد پرداخت اجاره بها نزدیک است.',
-      chequeDue: 'مشتری گرامی، یادآوری می‌گردد سررسید چک شما به زودی می‌باشد.',
+      contractExpiry: 'مشتری گرامی، موعد قرارداد شما به زودی به پایان می‌رسد.',
+      rentPayment: 'مشتری گرامی، موعد پرداخت اجاره بها نزدیک است.',
+      chequeDue: 'مشتری گرامی، موعد سررسید چک شما نزدیک است.',
       businessCard: 'املاک ما - بهترین مشاور شما در منطقه. تلفن: {phone1}',
     },
   });
