@@ -1,3 +1,7 @@
+export type EntityRole = 'landlord' | 'tenant' | 'buyer' | 'seller' | 'other';
+export type PaymentMethod = 'cash' | 'transfer' | 'cheque' | 'pos' | 'credit';
+export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'cancelled';
+
 export interface Customer {
   id?: number;
   fullName: string;
@@ -12,7 +16,7 @@ export interface Customer {
   autoSendMessages?: boolean;
   description?: string;
   roles?: string[];
-  customerType?: 'landlord' | 'tenant' | 'buyer' | 'seller' | 'other';
+  customerType?: EntityRole;
   hasUncollectedCheque?: boolean;
   hasDebt?: boolean;
   debtAmount?: number;
@@ -38,8 +42,8 @@ export interface Contract {
   commission: number;
   tax: number;
   totalPayable: number;
-  party1PaymentMethod: 'cash' | 'transfer' | 'cheque' | 'pos' | 'credit' | '';
-  party2PaymentMethod: 'cash' | 'transfer' | 'cheque' | 'pos' | 'credit' | '';
+  party1PaymentMethod: PaymentMethod | '';
+  party2PaymentMethod: PaymentMethod | '';
   party1PosStatus?: 'pending' | 'success' | 'failed';
   party2PosStatus?: 'pending' | 'success' | 'failed';
   party1PosReceipt?: string;
@@ -50,6 +54,38 @@ export interface Contract {
   renewalDate?: string;
   renewedCount?: number;
   status: 'draft' | 'party1_paid' | 'completed' | 'cancelled' | 'renewed';
+  createdAt: number;
+}
+
+export interface Invoice {
+  id?: number;
+  invoiceNumber: string;
+  contractId: number;
+  contractNumber: string;
+  customerId?: number;
+  customerName: string;
+  customerPhone: string;
+  partyRole: string;
+  subtotal: number;
+  tax: number;
+  total: number;
+  paidAmount: number;
+  status: 'issued' | 'partial' | 'paid' | 'cancelled';
+  issuedAt: number;
+  dueDate?: string;
+}
+
+export interface Payment {
+  id?: number;
+  invoiceId: number;
+  contractId: number;
+  amount: number;
+  method: PaymentMethod;
+  status: PaymentStatus;
+  reference?: string;
+  chequeDate?: string;
+  note?: string;
+  paidAt: number;
   createdAt: number;
 }
 
