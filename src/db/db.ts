@@ -1,26 +1,36 @@
 import Dexie, { type Table } from 'dexie';
-import type { Customer, Contract, Settings, MessageLog } from '../types';
+import type { Customer, Contract, Settings, MessageLog, AuditLog } from '../types';
 
 export class AppDatabase extends Dexie {
   customers!: Table<Customer, number>;
   contracts!: Table<Contract, number>;
   settings!: Table<Settings, number>;
   messageLogs!: Table<MessageLog, number>;
+  auditLogs!: Table<AuditLog, number>;
 
   constructor() {
     super('RealEstateInvoiceDB');
+
     this.version(1).stores({
       customers: '++id, fullName, nationalId, phone, roles, createdAt',
       contracts: '++id, contractNumber, date, status, createdAt',
       settings: '++id',
       messageLogs: '++id, date, phone, status',
     });
+
+    // V2: immutable audit trail for business-critical operations.
+    this.version(2).stores({
+      customers: '++id, fullName, nationalId, phone, roles, createdAt',
+      contracts: '++id, contractNumber, date, status, createdAt',
+      settings: '++id',
+      messageLogs: '++id, date, phone, status',
+      auditLogs: '++id, action, entity, entityId, createdAt',
+    });
   }
 }
 
 export const db = new AppDatabase();
 
-// Initialize default settings if empty
 db.on('populate', async () => {
   await db.settings.add({
     agencyName: 'مشاورین املاک من',
@@ -37,11 +47,11 @@ db.on('populate', async () => {
     posPort: '8888',
     posTerminalId: '',
     psp: 'سامان کیش',
-    bankDetails: 'بانک ملت - شماره حساب: 123456 - شبا: IR00000000000 - به نام: موسی مریدی',
-    accountHolderName: 'موسی مریدی',
-    accountNumber: '123456',
-    cardNumber: '6104-3377-0000-0000',
-    shebaNumber: '0000-0000-0000-0000-0000-0000',
+    bankDetails: '',
+    accountHolderName: '',
+    accountNumber: '',
+    cardNumber: '',
+    shebaNumber: '',
     theme: 'blue',
     themeEffect: 'none',
     font: 'vazirmatn',
@@ -62,7 +72,7 @@ db.on('populate', async () => {
       contractExpiry: 'مشتری گرامی، موعد قرارداد شما به زودی به پایان می‌رسد. جهت تمدید با ما در تماس باشید.',
       rentPayment: 'مشتری گرامی، یادآوری می‌گردد موعد پرداخت اجاره بها نزدیک است.',
       chequeDue: 'مشتری گرامی، یادآوری می‌گردد سررسید چک شما به زودی می‌باشد.',
-      businessCard: 'املاک ما - بهترین مشاور شما در منطقه. تلفن: {phone1}'
-    }
+      businessCard: 'املاک ما - بهترین مشاور شما در منطقه. تلفن: {phone1}',
+    },
   });
 });
