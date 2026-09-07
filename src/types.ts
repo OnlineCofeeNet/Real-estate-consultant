@@ -2,6 +2,18 @@ export type EntityRole = 'landlord' | 'tenant' | 'buyer' | 'seller' | 'other';
 export type PaymentMethod = 'cash' | 'transfer' | 'cheque' | 'pos' | 'credit';
 export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'cancelled';
 
+export type UserRole = 'admin' | 'manager' | 'agent' | 'accountant';
+
+export interface AuthUser {
+  id?: number;
+  username: string;
+  passwordHash: string;
+  salt: string;
+  role: UserRole;
+  createdAt: number;
+  lastLoginAt?: number;
+}
+
 export interface Customer {
   id?: number;
   fullName: string;

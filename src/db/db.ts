@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import type { Customer, Contract, Settings, MessageLog, AuditLog, Invoice, Payment } from '../types';
+import type { Customer, Contract, Settings, MessageLog, AuditLog, Invoice, Payment, AuthUser } from '../types';
 
 export class AppDatabase extends Dexie {
   customers!: Table<Customer, number>;
@@ -9,6 +9,7 @@ export class AppDatabase extends Dexie {
   auditLogs!: Table<AuditLog, number>;
   invoices!: Table<Invoice, number>;
   payments!: Table<Payment, number>;
+  users!: Table<AuthUser, number>;
 
   constructor() {
     super('RealEstateInvoiceDB');
@@ -28,8 +29,6 @@ export class AppDatabase extends Dexie {
       auditLogs: '++id, action, entity, entityId, createdAt',
     });
 
-    // V3: normalized financial records. Contracts remain the source of the deal;
-    // invoices and payments become the source of truth for receivables.
     this.version(3).stores({
       customers: '++id, fullName, nationalId, phone, roles, createdAt',
       contracts: '++id, contractNumber, date, status, createdAt',
@@ -38,6 +37,18 @@ export class AppDatabase extends Dexie {
       auditLogs: '++id, action, entity, entityId, createdAt',
       invoices: '++id, invoiceNumber, contractId, customerId, status, issuedAt',
       payments: '++id, invoiceId, contractId, status, method, paidAt, createdAt',
+    });
+
+    // V4: local authentication accounts. Passwords are never stored in plaintext.
+    this.version(4).stores({
+      customers: '++id, fullName, nationalId, phone, roles, createdAt',
+      contracts: '++id, contractNumber, date, status, createdAt',
+      settings: '++id',
+      messageLogs: '++id, date, phone, status',
+      auditLogs: '++id, action, entity, entityId, createdAt',
+      invoices: '++id, invoiceNumber, contractId, customerId, status, issuedAt',
+      payments: '++id, invoiceId, contractId, status, method, paidAt, createdAt',
+      users: '++id, &username, role, createdAt',
     });
   }
 }

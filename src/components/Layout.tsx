@@ -3,10 +3,13 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { LayoutDashboard, FileText, Users, Settings, HelpCircle, WalletCards } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
+import { UserMenu } from './AuthGate';
+import { canAccess, getSession } from '../services/auth';
 
 const Layout = () => {
   const settings = useLiveQuery(() => db.settings.get(1));
   const agencyName = settings?.agencyName || 'سامانه املاک';
+  const session = getSession();
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden" dir="rtl">
@@ -17,13 +20,14 @@ const Layout = () => {
         </div>
         <nav className="flex-1 flex flex-col py-4 gap-1 px-3">
           <NavItem to="/" icon={<LayoutDashboard size={20} />} label="داشبورد" />
-          <NavItem to="/contracts" icon={<FileText size={20} />} label="قرارداد" />
-          <NavItem to="/finance" icon={<WalletCards size={20} />} label="مدیریت مالی" />
-          <NavItem to="/customers" icon={<Users size={20} />} label="مشتریان" />
-          <NavItem to="/settings" icon={<Settings size={20} />} label="تنظیمات" />
+          {session && canAccess(session.role, 'contracts') && <NavItem to="/contracts" icon={<FileText size={20} />} label="قرارداد" />}
+          {session && canAccess(session.role, 'finance') && <NavItem to="/finance" icon={<WalletCards size={20} />} label="مدیریت مالی" />}
+          {session && canAccess(session.role, 'customers') && <NavItem to="/customers" icon={<Users size={20} />} label="مشتریان" />}
+          {session && canAccess(session.role, 'settings') && <NavItem to="/settings" icon={<Settings size={20} />} label="تنظیمات" />}
           <NavItem to="/help" icon={<HelpCircle size={20} />} label="راهنما" />
         </nav>
-        <div className="p-4 border-t border-slate-800 text-[11px] text-slate-400 flex flex-col gap-2">
+        <div className="p-4 border-t border-slate-800 text-[11px] text-slate-400 flex flex-col gap-3">
+          <UserMenu />
           <div className="flex items-center gap-2"><span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"/><span>POS: متصل</span></div>
           <div className="flex items-center gap-2"><span className="w-2 h-2 bg-emerald-400 rounded-full"/><span>چاپگر: آماده</span></div>
         </div>
@@ -31,14 +35,15 @@ const Layout = () => {
       <div className="flex flex-col flex-1 overflow-hidden">
         <header className="md:hidden bg-slate-900 text-white shadow-md px-4 py-3 flex items-center justify-between z-10">
           <div className="flex items-center gap-3"><div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center font-bold text-sm text-white">{agencyName.charAt(0)}</div><h1 className="text-lg font-bold truncate max-w-[200px]">{agencyName}</h1></div>
+          <UserMenu />
         </header>
         <main className="flex-1 overflow-y-auto p-4 pb-20 md:pb-4"><div className="max-w-7xl mx-auto h-full"><Outlet /></div></main>
         <nav className="md:hidden fixed bottom-0 w-full bg-slate-900 shadow-[0_-1px_3px_rgba(0,0,0,0.3)] flex justify-around z-20">
           <NavItem to="/" icon={<LayoutDashboard size={24} />} label="داشبورد" />
-          <NavItem to="/contracts" icon={<FileText size={24} />} label="قرارداد" />
-          <NavItem to="/finance" icon={<WalletCards size={24} />} label="مالی" />
-          <NavItem to="/customers" icon={<Users size={24} />} label="مشتریان" />
-          <NavItem to="/settings" icon={<Settings size={24} />} label="تنظیمات" />
+          {session && canAccess(session.role, 'contracts') && <NavItem to="/contracts" icon={<FileText size={24} />} label="قرارداد" />}
+          {session && canAccess(session.role, 'finance') && <NavItem to="/finance" icon={<WalletCards size={24} />} label="مالی" />}
+          {session && canAccess(session.role, 'customers') && <NavItem to="/customers" icon={<Users size={24} />} label="مشتریان" />}
+          {session && canAccess(session.role, 'settings') && <NavItem to="/settings" icon={<Settings size={24} />} label="تنظیمات" />}
         </nav>
       </div>
     </div>
