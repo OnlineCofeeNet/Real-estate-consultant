@@ -10,6 +10,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db/db';
 import Layout from './components/Layout';
 import { AuthGate, ProtectedRoute } from './components/AuthGate';
+import { hasActiveSession, touchSession } from './services/auth';
 import Dashboard from './pages/Dashboard';
 import Customers from './pages/Customers';
 import Contracts from './pages/Contracts';
@@ -27,6 +28,7 @@ export default function App() {
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') doAutoBackup();
+      if (document.visibilityState === 'visible' && hasActiveSession()) touchSession();
     };
 
     const handleBeforeUnload = () => {
@@ -39,6 +41,20 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
+  }, []);
+
+  useEffect(() => {
+    let lastTouch = 0;
+    const activityEvents = ['pointerdown', 'keydown', 'touchstart', 'scroll'];
+    const handleActivity = () => {
+      const now = Date.now();
+      if (now - lastTouch < 60_000) return;
+      lastTouch = now;
+      if (hasActiveSession()) touchSession();
+    };
+
+    activityEvents.forEach((event) => window.addEventListener(event, handleActivity, { passive: true }));
+    return () => activityEvents.forEach((event) => window.removeEventListener(event, handleActivity));
   }, []);
 
   const settings = useLiveQuery(() => db.settings.get(1));
