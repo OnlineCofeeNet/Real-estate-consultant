@@ -9,6 +9,7 @@ import { Toaster } from 'react-hot-toast';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db/db';
 import Layout from './components/Layout';
+import { AuthGate, ProtectedRoute } from './components/AuthGate';
 import Dashboard from './pages/Dashboard';
 import Customers from './pages/Customers';
 import Contracts from './pages/Contracts';
@@ -52,13 +53,23 @@ export default function App() {
     <BrowserRouter>
       <Toaster position="top-center" />
       <Routes>
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Dashboard />} />
-          <Route path="contracts" element={<Contracts />} />
-          <Route path="finance" element={<Finance />} />
-          <Route path="customers" element={<Customers />} />
-          <Route path="settings" element={<Settings />} />
-          <Route path="help" element={<Help />} />
+        <Route element={<AuthGate />}>
+          <Route element={<Layout />}>
+            <Route index element={<Dashboard />} />
+            <Route element={<ProtectedRoute permission="contracts" />}>
+              <Route path="contracts" element={<Contracts />} />
+            </Route>
+            <Route element={<ProtectedRoute permission="finance" />}>
+              <Route path="finance" element={<Finance />} />
+            </Route>
+            <Route element={<ProtectedRoute permission="customers" />}>
+              <Route path="customers" element={<Customers />} />
+            </Route>
+            <Route element={<ProtectedRoute permission="settings" />}>
+              <Route path="settings" element={<Settings />} />
+            </Route>
+            <Route path="help" element={<Help />} />
+          </Route>
         </Route>
       </Routes>
     </BrowserRouter>
