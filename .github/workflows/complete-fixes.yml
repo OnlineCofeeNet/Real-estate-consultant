@@ -22,7 +22,12 @@ jobs:
           import re, textwrap
           wf = Path('.github/workflows/apply-contract-fixes.yml').read_text(encoding='utf-8')
           script = textwrap.dedent(wf.split("python <<'PY'\n", 1)[1].split('\n          PY', 1)[0])
-          script = re.sub(r"sms_re = re\.compile\(r\".*?\"\)", "sms_re = re.compile(r\"  // API Route: Send SMS \\(Mock/Real\\)[\\s\\S]*?(?=\\n\\s*app\\.post\\(|\\n\\s*app\\.get\\(|\\Z)\")", script, count=1)
+          script = re.sub(
+              r'sms_re = re\\.compile\\(r".*?"\\)',
+              lambda _: 'sms_re = re.compile(r"  // API Route: Send SMS \\(Mock/Real\\)[\\s\\S]*?(?=\\n\\s*app\\.post\\(|\\n\\s*app\\.get\\(|\\Z)")',
+              script,
+              count=1,
+          )
           exec(compile(script, 'patcher.py', 'exec'), {})
           p = Path('src/pages/Contracts.tsx')
           s = p.read_text(encoding='utf-8')
@@ -42,7 +47,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          rm -f .patch-trigger .patch-trigger2 .finalize-trigger
+          rm -f .patch-trigger .patch-trigger2 .finalize-trigger .complete-trigger
           git rm -f .github/workflows/apply-contract-fixes.yml .github/workflows/finish-contract-fixes.yml .github/workflows/finalize-contract-fixes.yml .github/workflows/complete-fixes.yml
           git add src/pages/Contracts.tsx src/pages/Customers.tsx src/pages/Settings.tsx server.ts patch_welcome*.cjs 2>/dev/null || true
           git commit -m "fix: contracts pagination customers bulk actions and SMS delivery"
