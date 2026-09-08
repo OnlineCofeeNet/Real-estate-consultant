@@ -1,0 +1,130 @@
+name: Apply contract and SMS fixes
+on:
+  push:
+    branches:
+      - fix/contracts-sms-pagination-20260908
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply fixes
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import re
+
+          def read(p):
+              return Path(p).read_text(encoding='utf-8')
+          def write(p, s):
+              Path(p).write_text(s, encoding='utf-8')
+          def replace_once(s, old, new, label):
+              if old not in s:
+                  raise SystemExit(f'Missing anchor: {label}')
+              return s.replace(old, new, 1)
+
+          # 1-4: Contracts
+          p = 'src/pages/Contracts.tsx'
+          s = read(p)
+          s = replace_once(s, "import React, { useState } from 'react';", "import React, { useState, useEffect } from 'react';", 'Contracts React import')
+
+          old_state = "  const [listFilter, setListFilter] = useState<'all' | 'rent' | 'sale' | 'cheque'>('all');"
+          s = replace_once(s, old_state, old_state + "\n\n  useEffect(() => {\n    setCurrentPage(1);\n  }, [listSearch, listFilter]);", 'Contracts pagination reset')
+
+          start = s.find('  // Filtered contracts for list view')
+          end = s.find('  return (', start)
+          if start < 0 or end < 0:
+              raise SystemExit('Missing Contracts filteredContracts block')
+          block = '''  // Filtered contracts for list view\n  const filteredContracts = (contracts || []).filter(c => {\n    if (listFilter === 'rent' && c.type !== 'rent') return false;\n    if (listFilter === 'sale' && c.type !== 'sale') return false;\n    if (listFilter === 'cheque' && c.party1PaymentMethod !== 'cheque' && c.party2PaymentMethod !== 'cheque') return false;\n\n    if (!listSearch.trim()) return true;\n    const query = normalizeSearchQuery(listSearch);\n    const contractNum = normalizeSearchQuery(c.contractNumber);\n    const party1Name = normalizeSearchQuery(c.party1?.fullName);\n    const party2Name = normalizeSearchQuery(c.party2?.fullName);\n    const party1Phone = normalizeSearchQuery(c.party1?.phone);\n    const party2Phone = normalizeSearchQuery(c.party2?.phone);\n    const party1National = normalizeSearchQuery(c.party1?.nationalId);\n    const party2National = normalizeSearchQuery(c.party2?.nationalId);\n    const party1Cheque = normalizeSearchQuery(c.party1ChequeDate);\n    const party2Cheque = normalizeSearchQuery(c.party2ChequeDate);\n\n    return (\n      contractNum.includes(query) ||\n      party1Name.includes(query) ||\n      party2Name.includes(query) ||\n      party1Phone.includes(query) ||\n      party2Phone.includes(query) ||\n      party1National.includes(query) ||\n      party2National.includes(query) ||\n      party1Cheque.includes(query) ||\n      party2Cheque.includes(query)\n    );\n  });\n\n  const totalPages = Math.ceil((filteredContracts.length || 1) / itemsPerPage);\n  const paginatedContracts = filteredContracts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);\n  const currentListIds = paginatedContracts.map(c => c.id!).filter(Boolean);\n  const isAllSelected = currentListIds.length > 0 && currentListIds.every(id => selectedContracts.has(id));\n\n'''
+          s = s[:start] + block + s[end:]
+
+          old_footer = "{toPersianDigits(formatCurrency(printTarget === 'party1' ? contractData.party1PaymentMethod === 'cash' ? contractData.totalPayable : contractData.totalPayable : contractData.totalPayable))} تومان"
+          s = replace_once(s, old_footer, "{formatCurrency((contractData.totalPayable || 0) / 2)}", 'Contracts invoice footer amount')
+
+          # Renewal: invoke the same SMS helper after successful renewal update.
+          renewal_marker = "      toast.success(`قرارداد برای ۱ سال تمدید شد (تا تاریخ ${toPersianDigits(renewalEndDate)}). یادآورهای هوشمند مجدداً فعال شدند.`);"
+          renewal_call = "      await sendAutoSms({ ...renewalContract, date: renewalStartDate, endDate: renewalEndDate, price: renewalPrice, rent: renewalRent, totalPayable: renewalContract.totalPayable || 0 });\n\n" + renewal_marker
+          s = replace_once(s, renewal_marker, renewal_call, 'Contracts renewal SMS')
+          write(p, s)
+
+          # 4: Settings auto SMS checkbox.
+          p = 'src/pages/Settings.tsx'
+          s = read(p)
+          marker = "                </div>\n              </div>"
+          checkbox = '''                </div>\n\n                <div className="col-span-1 md:col-span-3 flex items-center gap-2 mt-1">\n                  <input\n                    type="checkbox"\n                    id="autoSendSmsInvoice"\n                    className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"\n                    checked={Boolean(formData.autoSendSmsInvoice)}\n                    onChange={e => setFormData({ ...formData, autoSendSmsInvoice: e.target.checked })}\n                    disabled={formData.smsProvider === 'none'}\n                  />\n                  <label htmlFor="autoSendSmsInvoice" className="text-sm font-bold text-slate-700 cursor-pointer">\n                    ارسال خودکار پیامک اطلاع‌رسانی پس از صدور فاکتور\n                  </label>\n                </div>\n              </div>'''
+          if marker not in s:
+              raise SystemExit('Missing Settings SMS panel anchor')
+          # Only replace the first matching closing pair after the SMS template textarea.
+          idx = s.find('متن پیامک اطلاع‌رسانی صدور فاکتور')
+          close_idx = s.find(marker, idx)
+          if idx < 0 or close_idx < 0:
+              raise SystemExit('Missing Settings SMS template closing anchor')
+          s = s[:close_idx] + checkbox + s[close_idx+len(marker):]
+          write(p, s)
+
+          # 5 + 7: server SMS delivery and platform-safe chat-id resolution.
+          p = 'server.ts'
+          s = read(p)
+          old = "  const matchedById = botUsers.find(u => u.chatId === cleaned);"
+          new = "  let matchedById = botUsers.find(u => u.platform === platform && u.chatId === cleaned);\n  if (!matchedById) {\n    matchedById = botUsers.find(u => u.chatId === cleaned);\n  }"
+          s = replace_once(s, old, new, 'server resolveChatId')
+
+          sms_re = re.compile(r"app\.post\('/api/bot/send-sms',[\\s\\S]*?(?=\n\s*app\.post\(|\n\s*app\.get\(|\Z)")
+          sms_new = '''app.post('/api/bot/send-sms', async (req, res) => {\n  try {\n    const { phone, message } = req.body;\n    if (!phone || !message) {\n      return res.json({ success: false, error: 'شماره تلفن و متن پیام الزامی است' });\n    }\n    const provider = cachedSettings?.smsProvider;\n    if (!provider || provider === 'none') {\n      return res.json({ success: false, error: 'سرویس پیامک در تنظیمات فعال نشده است' });\n    }\n    const token = cachedSettings?.smsToken;\n    const line = cachedSettings?.smsLineNumber;\n    if (!token) {\n      return res.json({ success: false, error: 'توکن پنل پیامک تنظیم نشده است' });\n    }\n\n    let success = false;\n    let raw: any = null;\n\n    if (provider === 'smsir') {\n      const response = await axios.post('https://api.sms.ir/v1/send/bulk', {\n        lineNumber: line,\n        messageText: message,\n        mobiles: [phone]\n      }, { headers: { 'X-API-KEY': token, 'Content-Type': 'application/json' }, timeout: 15000 });\n      raw = response.data;\n      success = raw?.status === 1;\n    } else if (provider === 'farazsms') {\n      const response = await axios.post('https://api2.ippanel.com/api/v1/sms/send/webservice/single', {\n        recipient: phone,\n        sender: line || '',\n        message\n      }, { headers: { apikey: token }, timeout: 15000 });\n      raw = response.data;\n      success = raw?.meta?.status === true || raw?.status === 'OK';\n    }\n\n    if (success) return res.json({ success: true, message: 'پیامک با موفقیت ارسال شد.' });\n    return res.json({ success: false, error: 'خطا در ارسال پیامک', details: raw });\n  } catch (err: any) {\n    console.log('SMS send notice:', err?.response?.data || err.message);\n    return res.json({ success: false, error: 'خطا در ارتباط با سرویس پیامک', details: err?.response?.data?.message || err.message });\n  }\n});\n'''
+          s2, n = sms_re.subn(sms_new, s, count=1)
+          if n != 1:
+              raise SystemExit(f'SMS endpoint replacement count={n}')
+          s = s2
+          s = s.replace('اطلاعرسانی', 'اطلاع‌رسانی').replace('صورتحسابها', 'صورتحساب‌ها')
+          write(p, s)
+
+          # 6: Customers page-wide selection, messaging and export.
+          p = 'src/pages/Customers.tsx'
+          s = read(p)
+          old = '''checked={Boolean(\n                      customers && customers.length > 0 &&\n                      customers.length === selectedCustomers.length\n                    )}'''
+          if old in s:
+              new = '''checked={Boolean(\n                      customers && customers.length > 0 &&\n                      customers.every((c) => selectedCustomers.includes(c.id as number))\n                    )}'''
+              s = s.replace(old, new, 1)
+          else:
+              # Handle a compact formatting variant.
+              s = re.sub(r"checked=\{Boolean\(\\n\\s*customers && customers\.length > 0 &&\\n\\s*customers\.length === selectedCustomers\.length\\n\\s*\)\}", new, s, count=1)
+          # All customer lookups used by bulk messaging must use the full collection.
+          s = s.replace('const customer = customers?.find((c) => c.id === cid);', 'const customer = allCustomers?.find((c) => c.id === cid);')
+          s = s.replace('const customer = customers.find((c) => c.id === cid);', 'const customer = allCustomers?.find((c) => c.id === cid);')
+          # Export filtered results, not only the current page.
+          s = replace_once(s, 'if (!customers || customers.length === 0) return;', 'if (!filteredCustomers || filteredCustomers.length === 0) return;', 'Customers export guard')
+          s = replace_once(s, '      customers.map((c) => ({', '      filteredCustomers.map((c) => ({', 'Customers export dataset')
+          write(p, s)
+
+          # 8 + cleanup note: create a tracked issue separately; do not fake financial records.
+
+          # Restore ZWNJ in patch scripts if they exist.
+          for p in Path('.').glob('patch_welcome*.cjs'):
+              t = read(p)
+              t = t.replace('اطلاعرسانی', 'اطلاع‌رسانی').replace('صورتحسابها', 'صورتحساب‌ها')
+              write(p, t)
+
+          print('All source patches applied.')
+          PY
+      - name: Typecheck and build
+        run: |
+          npm ci --no-audit --no-fund
+          npm run lint
+          npm run build
+      - name: Commit patched source and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-contract-fixes.yml
+          git add src/pages/Contracts.tsx src/pages/Customers.tsx src/pages/Settings.tsx server.ts patch_welcome*.cjs 2>/dev/null || true
+          git commit -m "fix: contracts pagination customers bulk actions and SMS delivery"
+          git push origin HEAD:fix/contracts-sms-pagination-20260908
