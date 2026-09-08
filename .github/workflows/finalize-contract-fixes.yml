@@ -1,0 +1,54 @@
+name: Finalize contract and SMS fixes
+on:
+  push:
+    branches:
+      - fix/contracts-sms-pagination-20260908
+permissions:
+  contents: write
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply and validate source fixes
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import re
+          import textwrap
+
+          wf = Path('.github/workflows/apply-contract-fixes.yml').read_text(encoding='utf-8')
+          script = wf.split("python <<'PY'\n", 1)[1].split('\n          PY', 1)[0]
+          script = textwrap.dedent(script)
+          script = script.replace(r"sms_re = re.compile(r\"app\\.post\\('/api/bot/send-sms',[\\\\s\\\\S]*?(?=\\n\\s*app\\.post\\(|\\n\\s*app\\.get\\(|\\Z)\")", r"sms_re = re.compile(r\"app\\.post\\('/api/bot/send-sms',[\\s\\S]*?(?=\\n\\s*app\\.post\\(|\\n\\s*app\\.get\\(|\\Z)\")")
+          exec(compile(script, 'apply-contract-fixes.py', 'exec'), {})
+
+          # Make sendAutoSms available to executeRenewal at component scope.
+          p = Path('src/pages/Contracts.tsx')
+          s = p.read_text(encoding='utf-8')
+          if 'const executeRenewal = async () =>' in s and s.count('const sendAutoSms = async (contract: Partial<Contract>) =>') == 1:
+              nested_start = s.find('  const sendAutoSms = async (contract: Partial<Contract>) => {')
+              nested_end = s.find('\n  };', nested_start) + len('\n  };')
+              helper = s[nested_start:nested_end]
+              insert_at = s.find('  const handleSave = async () => {')
+              s = s[:insert_at] + helper + '\n\n' + s[insert_at:]
+              s = s[:nested_start] + s[nested_end:]
+              p.write_text(s, encoding='utf-8')
+          PY
+          npm ci --no-audit --no-fund
+          npm run lint
+          npm run build
+      - name: Commit and cleanup temporary workflows
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .patch-trigger .patch-trigger2
+          git rm -f .github/workflows/apply-contract-fixes.yml .github/workflows/finish-contract-fixes.yml .github/workflows/finalize-contract-fixes.yml
+          git add src/pages/Contracts.tsx src/pages/Customers.tsx src/pages/Settings.tsx server.ts patch_welcome*.cjs 2>/dev/null || true
+          git commit -m "fix: contracts pagination customers bulk actions and SMS delivery"
+          git push origin HEAD:fix/contracts-sms-pagination-20260908
