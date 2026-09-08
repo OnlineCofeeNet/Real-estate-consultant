@@ -1,0 +1,149 @@
+name: Direct source fixes
+on:
+  push:
+    branches:
+      - fix/contracts-sms-pagination-20260908
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Patch source
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          def read(p): return Path(p).read_text(encoding='utf-8')
+          def write(p,s): Path(p).write_text(s,encoding='utf-8')
+          def req(s, old, new, label):
+              if old not in s: raise SystemExit(f'Missing anchor: {label}')
+              return s.replace(old,new,1)
+
+          # Contracts: import/effect, filtering/pagination, invoice footer.
+          p='src/pages/Contracts.tsx'; s=read(p)
+          s=s.replace("import React, { useState } from 'react';", "import React, { useState, useEffect } from 'react';", 1) if "import React, { useState } from 'react';" in s else s
+          state="  const [listFilter, setListFilter] = useState<'all' | 'rent' | 'sale' | 'cheque'>('all');"
+          if 'useEffect(() => {\n    setCurrentPage(1);\n  }, [listSearch, listFilter]);' not in s:
+              s=req(s,state,state+"\n\n  useEffect(() => {\n    setCurrentPage(1);\n  }, [listSearch, listFilter]);",'Contracts pagination effect')
+          start=s.find('  // Filtered contracts for list view'); end=s.find('  return (',start)
+          if start<0 or end<0: raise SystemExit('Missing Contracts filter block')
+          block='''  // Filtered contracts for list view
+  const filteredContracts = (contracts || []).filter(c => {
+    if (listFilter === 'rent' && c.type !== 'rent') return false;
+    if (listFilter === 'sale' && c.type !== 'sale') return false;
+    if (listFilter === 'cheque' && c.party1PaymentMethod !== 'cheque' && c.party2PaymentMethod !== 'cheque') return false;
+    if (!listSearch.trim()) return true;
+    const query = normalizeSearchQuery(listSearch);
+    const contractNum = normalizeSearchQuery(c.contractNumber);
+    const party1Name = normalizeSearchQuery(c.party1?.fullName);
+    const party2Name = normalizeSearchQuery(c.party2?.fullName);
+    const party1Phone = normalizeSearchQuery(c.party1?.phone);
+    const party2Phone = normalizeSearchQuery(c.party2?.phone);
+    const party1National = normalizeSearchQuery(c.party1?.nationalId);
+    const party2National = normalizeSearchQuery(c.party2?.nationalId);
+    const party1Cheque = normalizeSearchQuery(c.party1ChequeDate);
+    const party2Cheque = normalizeSearchQuery(c.party2ChequeDate);
+    return contractNum.includes(query) || party1Name.includes(query) || party2Name.includes(query) || party1Phone.includes(query) || party2Phone.includes(query) || party1National.includes(query) || party2National.includes(query) || party1Cheque.includes(query) || party2Cheque.includes(query);
+  });
+  const totalPages = Math.ceil((filteredContracts.length || 1) / itemsPerPage);
+  const paginatedContracts = filteredContracts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const currentListIds = paginatedContracts.map(c => c.id!).filter(Boolean);
+  const isAllSelected = currentListIds.length > 0 && currentListIds.every(id => selectedContracts.has(id));
+
+'''
+          s=s[:start]+block+s[end:]
+          footer="{toPersianDigits(formatCurrency(printTarget === 'party1' ? contractData.party1PaymentMethod === 'cash' ? contractData.totalPayable : contractData.totalPayable : contractData.totalPayable))} تومان"
+          s=s.replace(footer,"{formatCurrency((contractData.totalPayable || 0) / 2)}",1)
+
+          # Lift sendAutoSms out of handleSave so renewal can use it.
+          if s.count('const sendAutoSms = async (contract: Partial<Contract>) =>')==1 and 'const executeRenewal = async () =>' in s:
+              a=s.find('  const sendAutoSms = async (contract: Partial<Contract>) => {'); b=s.find('\n  };',a)+5
+              helper=s[a:b]; h=s.find('  const handleSave = async () => {')
+              if a>h:
+                  s=s[:h]+helper+'\n\n'+s[h:]; a2=s.find('  const sendAutoSms = async (contract: Partial<Contract>) => {',h+len(helper)); b2=s.find('\n  };',a2)+5; s=s[:a2]+s[b2:]
+          marker="      toast.success(`قرارداد برای ۱ سال تمدید شد (تا تاریخ ${toPersianDigits(renewalEndDate)}). یادآورهای هوشمند مجدداً فعال شدند.`);"
+          if marker in s and 'await sendAutoSms({ ...renewalContract' not in s:
+              s=s.replace(marker,"      await sendAutoSms({ ...renewalContract, date: renewalStartDate, endDate: renewalEndDate, price: renewalPrice, rent: renewalRent, totalPayable: renewalContract.totalPayable || 0 });\n\n"+marker,1)
+          write(p,s)
+
+          # Settings checkbox.
+          p='src/pages/Settings.tsx'; s=read(p)
+          if 'id="autoSendSmsInvoice"' not in s:
+              idx=s.find('متن پیامک اطلاع‌رسانی صدور فاکتور'); marker="                </div>\n              </div>"; close=s.find(marker,idx)
+              if idx<0 or close<0: raise SystemExit('Missing Settings SMS template anchor')
+              cb='''                </div>
+
+                <div className="col-span-1 md:col-span-3 flex items-center gap-2 mt-1">
+                  <input type="checkbox" id="autoSendSmsInvoice" className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" checked={Boolean(formData.autoSendSmsInvoice)} onChange={e => setFormData({ ...formData, autoSendSmsInvoice: e.target.checked })} disabled={formData.smsProvider === 'none'} />
+                  <label htmlFor="autoSendSmsInvoice" className="text-sm font-bold text-slate-700 cursor-pointer">ارسال خودکار پیامک اطلاع‌رسانی پس از صدور فاکتور</label>
+                </div>
+              </div>'''
+              s=s[:close]+cb+s[close+len(marker):]
+          write(p,s)
+
+          # Server: platform-aware chat resolution and real SMS providers.
+          p='server.ts'; s=read(p)
+          s=s.replace("  const matchedById = botUsers.find(u => u.chatId === cleaned);", "  let matchedById = botUsers.find(u => u.platform === platform && u.chatId === cleaned);\n  if (!matchedById) matchedById = botUsers.find(u => u.chatId === cleaned);",1)
+          sms_re=re.compile(r"  // API Route: Send SMS \(Mock/Real\)[\s\S]*?(?=\n\s*app\.post\(|\n\s*app\.get\(|\Z)")
+          sms_new='''  // API Route: Send SMS
+app.post('/api/bot/send-sms', async (req, res) => {
+  try {
+    const { phone, message } = req.body;
+    if (!phone || !message) return res.json({ success: false, error: 'شماره تلفن و متن پیام الزامی است' });
+    const provider = cachedSettings?.smsProvider;
+    const token = cachedSettings?.smsToken;
+    const line = cachedSettings?.smsLineNumber;
+    if (!provider || provider === 'none') return res.json({ success: false, error: 'سرویس پیامک در تنظیمات فعال نشده است' });
+    if (!token) return res.json({ success: false, error: 'توکن پنل پیامک تنظیم نشده است' });
+    let response;
+    if (provider === 'smsir') {
+      response = await axios.post('https://api.sms.ir/v1/send/bulk', { lineNumber: line, messageText: message, mobiles: [phone] }, { headers: { 'X-API-KEY': token, 'Content-Type': 'application/json' }, timeout: 15000 });
+    } else if (provider === 'farazsms') {
+      response = await axios.post('https://api2.ippanel.com/api/v1/sms/send/webservice/single', { recipient: phone, sender: line || '', message }, { headers: { apikey: token }, timeout: 15000 });
+    } else return res.json({ success: false, error: 'سرویس پیامک پشتیبانی نمی‌شود' });
+    const data=response.data;
+    const success=provider==='smsir' ? data?.status===1 : (data?.meta?.status===true || data?.status==='OK');
+    return res.json(success ? { success:true, message:'پیامک با موفقیت ارسال شد.' } : { success:false, error:'خطا در ارسال پیامک', details:data });
+  } catch (err) {
+    console.log('SMS send notice:', err?.response?.data || err.message);
+    return res.json({ success:false, error:'خطا در ارتباط با سرویس پیامک', details:err?.response?.data?.message || err.message });
+  }
+});'''
+          s,n=sms_re.subn(lambda _:sms_new,s,count=1)
+          if n!=1: raise SystemExit(f'SMS endpoint not found: {n}')
+          write(p,s.replace('اطلاعرسانی','اطلاع‌رسانی').replace('صورتحسابها','صورتحساب‌ها'))
+
+          # Customers: page-aware select all, all-customer messaging, filtered export.
+          p='src/pages/Customers.tsx'; s=read(p)
+          s=re.sub(r"checked=\{Boolean\(\s*customers && customers\.length > 0 &&\s*customers\.length === selectedCustomers\.length\s*\)\}","checked={Boolean(customers && customers.length > 0 && customers.every((c) => selectedCustomers.includes(c.id as number)))}",s,count=1)
+          s=s.replace('const customer = customers?.find((c) => c.id === cid);','const customer = allCustomers?.find((c) => c.id === cid);').replace('const customer = customers.find((c) => c.id === cid);','const customer = allCustomers?.find((c) => c.id === cid);')
+          if 'if (!customers || customers.length === 0) return;' in s: s=s.replace('if (!customers || customers.length === 0) return;','if (!filteredCustomers || filteredCustomers.length === 0) return;',1)
+          s=s.replace('      customers.map((c) => ({','      filteredCustomers.map((c) => ({',1)
+          write(p,s)
+
+          for p in Path('.').glob('patch_welcome*.cjs'):
+              write(p,read(p).replace('اطلاعرسانی','اطلاع‌رسانی').replace('صورتحسابها','صورتحساب‌ها'))
+          print('DIRECT_PATCH_OK')
+          PY
+          npm ci --no-audit --no-fund
+          npm run lint
+          npm run build
+      - name: Commit and cleanup
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/Contracts.tsx src/pages/Customers.tsx src/pages/Settings.tsx server.ts patch_welcome*.cjs 2>/dev/null || true
+          git commit -m "fix: contracts pagination customers bulk actions and SMS delivery"
+          git rm -f .github/workflows/direct-fix.yml .github/workflows/apply-contract-fixes.yml .github/workflows/finish-contract-fixes.yml .github/workflows/finalize-contract-fixes.yml .github/workflows/complete-fixes.yml .patch-trigger .patch-trigger2 .finalize-trigger .complete-trigger 2>/dev/null || true
+          git commit -m "chore: remove temporary fix workflows" || true
+          git push origin HEAD:fix/contracts-sms-pagination-20260908
