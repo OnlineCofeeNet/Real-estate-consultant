@@ -222,7 +222,7 @@ const Customers = () => {
     }
 
     return list;
-  }, [allCustomers, search, statusFilter, contracts]);
+  }, [allCustomers, search, statusFilter, contracts, minAmount, maxAmount, fromDate, toDate]);
 
   const counts = useMemo(() => {
     if (!allCustomers)
@@ -344,8 +344,21 @@ const Customers = () => {
 
   const confirmDelete = async () => {
     if (customerToDelete !== null) {
-      await db.customers.delete(customerToDelete);
-      toast.success("مشتری حذف شد");
+      try {
+        const contracts = await db.contracts.toArray();
+        const invoices = await db.invoices.toArray();
+        const isUsedInContract = contracts.some(c => c.party1?.id === customerToDelete || c.party2?.id === customerToDelete);
+        const isUsedInInvoice = invoices.some(i => i.customerId === customerToDelete);
+        
+        if (isUsedInContract || isUsedInInvoice) {
+          toast.error("این مشتری دارای سابقه مالی یا قرارداد است و قابل حذف فیزیکی نیست. لطفاً وضعیت او را به 'غیرفعال' تغییر دهید.");
+        } else {
+          await db.customers.delete(customerToDelete);
+          toast.success("مشتری حذف شد");
+        }
+      } catch (e) {
+        toast.error("خطا در بررسی سوابق مشتری");
+      }
       setIsDeleteModalOpen(false);
       setCustomerToDelete(null);
     }
@@ -464,7 +477,7 @@ const Customers = () => {
     let successCount = 0;
 
     for (const cid of selectedCustomers) {
-      const customer = customers?.find((c) => c.id === cid);
+      const customer = allCustomers?.find((c) => c.id === cid);
       if (!customer || !customer.phone) continue;
 
       try {

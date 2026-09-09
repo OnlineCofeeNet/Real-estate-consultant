@@ -155,6 +155,10 @@ class ApiDatabase {
   payments = new ApiTable<Payment>('/api/payments');
   users = new ApiTable<AuthUser>('/api/users');
 
+  async completeContractTransaction(payload: any) {
+    const res = await axios.post('/api/contracts/complete', payload);
+    return res.data;
+  }
   async transaction(...args: any[]) {
     const callback = args[args.length - 1];
     if (typeof callback === 'function') {

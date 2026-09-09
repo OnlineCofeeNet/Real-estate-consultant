@@ -6,6 +6,9 @@ import axios from 'axios';
 import FormData from 'form-data';
 import { createServer as createViteServer } from 'vite';
 import dbApiRouter from './src/routes/api.ts';
+import { db } from './src/db/index.ts';
+import { messageLogs } from './src/db/schema.ts';
+
 
 // Paths for caching settings and registered bot users on disk
 const SETTINGS_FILE = path.join(process.cwd(), 'bot-settings.json');
@@ -1128,8 +1131,9 @@ async function startServer() {
 
   
   // API Route: Send SMS (Mock/Real)
+
   app.post('/api/bot/send-sms', async (req, res) => {
-    const { phone, message } = req.body;
+    const { phone, message, customerName } = req.body;
     if (!phone || !message) return res.json({ success: false, error: 'Phone and message required' });
     
     // Check settings for SMS provider
@@ -1137,42 +1141,79 @@ async function startServer() {
     const token = cachedSettings?.smsToken;
     const line = cachedSettings?.smsLineNumber;
     
+    let isSimulated = false;
+    let status = 'pending';
+    
     if (provider === 'none' || !provider || !token) {
       console.log(`Simulated SMS to ${phone}:`, message);
-      return res.json({ success: true, message: 'پیامک شبیه‌سازی شد' });
+      isSimulated = true;
     }
 
     try {
-      if (provider === 'sms.ir') {
-        // SMS.ir V2 API
-        await axios.post('https://api.sms.ir/v1/send/bulk', {
-          lineNumber: line,
-          MessageTexts: [message],
-          Mobiles: [phone]
-        }, {
-          headers: { 'X-API-KEY': token, 'Accept': 'text/plain', 'Content-Type': 'application/json' }
-        });
-      } else if (provider === 'farazsms') {
-        // FarazSMS
-        await axios.post('https://ippanel.com/services.jspd', {
-          op: 'send',
-          uname: token.split(':')[0] || '', // token typically uname:pass
-          pass: token.split(':')[1] || '',
-          message: message,
-          from: line,
-          to: [phone]
-        });
-      } else {
-        console.log(`Unsupported SMS provider ${provider} to ${phone}:`, message);
+      if (!isSimulated) {
+        if (provider === 'sms.ir') {
+          // SMS.ir V2 API
+          await axios.post('https://api.sms.ir/v1/send/bulk', {
+            lineNumber: line,
+            MessageTexts: [message],
+            Mobiles: [phone]
+          }, {
+            headers: { 'X-API-KEY': token, 'Accept': 'text/plain', 'Content-Type': 'application/json' }
+          });
+        } else if (provider === 'farazsms') {
+          // FarazSMS
+          await axios.post('https://ippanel.com/services.jspd', {
+            op: 'send',
+            uname: token.split(':')[0] || '', // token typically uname:pass
+            pass: token.split(':')[1] || '',
+            message: message,
+            from: line,
+            to: [phone]
+          });
+        } else {
+          console.log(`Unsupported SMS provider ${provider} to ${phone}:`, message);
+        }
       }
-      return res.json({ success: true, message: 'پیامک با موفقیت ارسال شد' });
+      status = 'sent';
+      
+      // Save log
+      try {
+        await db.insert(messageLogs).values({
+          date: Date.now(),
+          customerName: customerName || 'کاربر',
+          phone: phone,
+          messenger: isSimulated ? 'sms (simulated)' : 'sms',
+          message: message,
+          status: status,
+          chatId: ''
+        });
+      } catch (err) {
+        console.error('Failed to log SMS', err);
+      }
+
+      return res.json({ success: true, message: isSimulated ? 'پیامک شبیه‌سازی شد' : 'پیامک با موفقیت ارسال شد' });
     } catch (err: any) {
       console.error('SMS Send Error:', err.message);
+      
+      // Save failure log
+      try {
+        await db.insert(messageLogs).values({
+          date: Date.now(),
+          customerName: customerName || 'کاربر',
+          phone: phone,
+          messenger: 'sms',
+          message: message,
+          status: 'failed',
+          chatId: ''
+        });
+      } catch (logErr) {
+        console.error('Failed to log SMS failure', logErr);
+      }
+      
       return res.json({ success: false, error: 'خطا در ارسال پیامک', details: err.message });
     }
   });
 
-  // API Route: Check Bot Status (Supports Telegram, Bale and Rubika)
   app.get('/api/bot/status', async (req, res) => {
     const requestedPlatform = (req.query.platform as string) || 'telegram';
     const token = (req.query.token as string) || (
