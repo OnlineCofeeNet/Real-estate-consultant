@@ -1,40 +1,72 @@
 const fs = require('fs');
-let code = fs.readFileSync('src/pages/Settings.tsx', 'utf8');
 
-// Add handleSetWebhook function
-const setWebhookCode = `
-  const handleSetWebhook = async (platform: 'telegram' | 'bale') => {
-    const token = platform === 'telegram' ? formData.telegramToken : formData.baleToken;
-    const platformLabel = platform === 'telegram' ? 'تلگرام' : 'بله';
-    if (!token || !token.trim()) {
-      toast.error(\`لطفاً ابتدا توکن ربات \${platformLabel} را وارد کنید\`);
-      return;
-    }
-    const toastId = toast.loading(\`در حال تنظیم اتصال پایدار (وب‌هوک) برای \${platformLabel}...\`);
+const file = 'src/pages/Settings.tsx';
+let content = fs.readFileSync(file, 'utf8');
+
+const changePasswordComponent = `
+const ChangePasswordCard = () => {
+  const session = getSession();
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) return toast.error('تکرار رمز عبور مطابقت ندارد.');
+    if (!session) return;
+    
+    setBusy(true);
     try {
-      const toSave = { ...formData };
-      await db.settings.put(toSave, 1);
-      
-      // We send the current frontend origin as the base URL for the webhook
-      const origin = window.location.origin;
-      const res = await axios.post('/api/bot/set-webhook', {
-        token,
-        platform,
-        url: origin
-      });
-      if (res.data?.success === false) {
-        toast.error(res.data?.details || res.data?.error || 'خطا در تنظیم وبهوک', { id: toastId });
-        return;
-      }
-      toast.success(res.data?.message || 'اتصال پایدار با موفقیت برقرار شد!', { id: toastId, duration: 4000 });
-      if (platform === 'telegram') await checkTelegramBotStatus(token);
-    } catch (err: any) {
-      toast.error(err?.response?.data?.details || 'خطا در ارتباط با سرور برای تنظیم وبهوک', { id: toastId });
+      await changePassword(session.userId, currentPassword, newPassword);
+      toast.success('رمز عبور شما با موفقیت تغییر کرد.');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch(err: any) {
+      toast.error(err.message || 'خطا در تغییر رمز عبور');
+    } finally {
+      setBusy(false);
     }
   };
-`;
-code = code.replace("const handleClearWebhook = async () => {", setWebhookCode + "\n  const handleClearWebhook = async () => {");
 
-// Add SMS panel to types
-// First check if smsToken exists in types
-fs.writeFileSync('src/pages/Settings.tsx', code);
+  return (
+    <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
+      <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2"><KeyRound size={20} className="text-emerald-500" /> تغییر رمز عبور</h2>
+      <form onSubmit={submit} className="max-w-sm space-y-4">
+        <label className="block text-sm font-medium text-slate-700">
+          <span className="block mb-1.5">رمز عبور فعلی</span>
+          <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required className="w-full border border-slate-300 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-emerald-500" dir="ltr" />
+        </label>
+        <label className="block text-sm font-medium text-slate-700">
+          <span className="block mb-1.5">رمز عبور جدید</span>
+          <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required className="w-full border border-slate-300 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-emerald-500" dir="ltr" />
+        </label>
+        <label className="block text-sm font-medium text-slate-700">
+          <span className="block mb-1.5">تکرار رمز جدید</span>
+          <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required className="w-full border border-slate-300 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-emerald-500" dir="ltr" />
+        </label>
+        <button disabled={busy} className="w-full mt-4 bg-slate-800 hover:bg-slate-900 text-white py-3 rounded-xl font-bold transition-colors">{busy ? 'در حال اعمال...' : 'بروزرسانی رمز عبور'}</button>
+      </form>
+    </div>
+  );
+};
+`;
+
+content = content.replace("import { Building2, Receipt", "import { KeyRound, Building2, Receipt");
+
+// Insert the component before export default function Settings()
+content = content.replace("export default function Settings() {", changePasswordComponent + "\nexport default function Settings() {");
+
+// Inject inside the settings UI (at the top of the general tab, maybe)
+content = content.replace(
+  '{activeTab === \'general\' && (',
+  '{activeTab === \'general\' && (\n        <div className="space-y-6">\n        <ChangePasswordCard />'
+);
+
+content = content.replace(
+  '          </div>\n        </div>\n      )}',
+  '          </div>\n        </div>\n        </div>\n      )}' // close the <div className="space-y-6">
+);
+
+fs.writeFileSync(file, content);

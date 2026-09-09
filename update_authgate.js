@@ -1,3 +1,6 @@
+const fs = require('fs');
+
+const content = `
 import React, { useEffect, useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { LockKeyhole, ShieldCheck, KeyRound, UserPlus, HelpCircle } from 'lucide-react';
@@ -131,10 +134,10 @@ const Login = ({ onSwitch }: { onSwitch: (mode: string) => void }) => {
         {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
         <button disabled={busy} className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white py-3 font-bold">{busy ? 'در حال ورود...' : 'ورود'}</button>
       </form>
-      <div className="mt-6 flex flex-col items-start gap-3 text-sm font-medium">
-        <button type="button" onClick={() => onSwitch('register')} className="text-emerald-600 hover:text-emerald-700 transition-colors flex items-center gap-2"><UserPlus size={16}/> ثبت‌نام کاربر جدید</button>
-        <button type="button" onClick={() => onSwitch('recover-password')} className="text-slate-500 hover:text-slate-800 transition-colors flex items-center gap-2"><KeyRound size={16}/> فراموشی رمز عبور</button>
-        <button type="button" onClick={() => onSwitch('recover-username')} className="text-slate-500 hover:text-slate-800 transition-colors flex items-center gap-2"><HelpCircle size={16}/> فراموشی نام کاربری</button>
+      <div className="mt-6 flex flex-col gap-2 text-sm text-slate-600">
+        <button onClick={() => onSwitch('register')} className="text-emerald-600 hover:underline">ثبت‌نام کاربر جدید</button>
+        <button onClick={() => onSwitch('recover-password')} className="text-emerald-600 hover:underline">رمز عبور خود را فراموش کرده‌ام</button>
+        <button onClick={() => onSwitch('recover-username')} className="text-emerald-600 hover:underline">نام کاربری خود را فراموش کرده‌ام</button>
       </div>
     </AuthShell>
   );
@@ -170,21 +173,21 @@ const Register = ({ onBack }: { onBack: () => void }) => {
   return (
     <AuthShell title="ثبت‌نام کاربر جدید" subtitle="پس از ثبت‌نام، نیاز به تایید مدیر سیستم دارید.">
       <form onSubmit={submit} className="space-y-4 max-h-[60vh] overflow-y-auto px-1 -mx-1">
-        <Field label="نام کاربری (انگلیسی، بدون فاصله)" value={username} onChange={setUsername} required />
-        <Field label="رمز عبور (حداقل ۸ حرف و یک عدد)" value={password} onChange={setPassword} type="password" required />
+        <Field label="نام کاربری" value={username} onChange={setUsername} required />
+        <Field label="رمز عبور" value={password} onChange={setPassword} type="password" required />
         <Field label="ایمیل" value={email} onChange={setEmail} type="email" required />
-        <Field label="شماره موبایل" value={phone} onChange={setPhone} required />
+        <Field label="شماره تماس" value={phone} onChange={setPhone} required />
         <div className="border-t pt-4 border-slate-200 mt-4">
-          <p className="text-xs text-slate-500 mb-4 font-semibold">پاسخ به سوالات امنیتی برای بازیابی رمز عبور الزامی است:</p>
-          <Field label="سوال امنیتی اول (مثال: نام شهر تولد؟)" value={q1} onChange={setQ1} required />
+          <p className="text-xs text-slate-500 mb-4">لطفاً سوالات امنیتی را به دقت پر کنید تا در صورت فراموشی رمز عبور بتوانید آن را بازیابی کنید.</p>
+          <Field label="سوال امنیتی اول (مثلاً نام شهر تولد؟)" value={q1} onChange={setQ1} required />
           <Field label="پاسخ سوال اول" value={a1} onChange={setA1} required />
-          <Field label="سوال امنیتی دوم (مثال: نام معلم کلاس اول؟)" value={q2} onChange={setQ2} required />
+          <Field label="سوال امنیتی دوم (مثلاً غذای مورد علاقه؟)" value={q2} onChange={setQ2} required />
           <Field label="پاسخ سوال دوم" value={a2} onChange={setA2} required />
         </div>
         {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
         <button disabled={busy} className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white py-3 font-bold">{busy ? 'در حال ثبت...' : 'ثبت‌نام'}</button>
       </form>
-      <button onClick={onBack} className="w-full mt-4 text-sm font-medium text-slate-500 hover:text-slate-800">بازگشت به ورود</button>
+      <button onClick={onBack} className="mt-4 text-sm text-slate-500 hover:text-slate-800">بازگشت به صفحه ورود</button>
     </AuthShell>
   );
 };
@@ -210,21 +213,21 @@ const RecoverUsername = ({ onBack }: { onBack: () => void }) => {
   };
 
   return (
-    <AuthShell title="بازیابی نام کاربری" subtitle="ایمیل یا موبایل ثبت شده خود را وارد کنید.">
+    <AuthShell title="بازیابی نام کاربری" subtitle="ایمیل یا شماره موبایل ثبت شده خود را وارد کنید.">
       {result.length > 0 ? (
         <div className="space-y-4">
-          <p className="text-sm text-emerald-700 bg-emerald-50 p-4 rounded-xl leading-relaxed">
-            نام(های) کاربری یافت شده برای این مشخصات: <br/>
-            {result.map(r => <strong key={r} className="block mt-2 text-lg text-emerald-900">{r}</strong>)}
+          <p className="text-sm text-emerald-700 bg-emerald-50 p-4 rounded-xl">
+            نام(های) کاربری شما: <br/>
+            {result.map(r => <strong key={r} className="block mt-1">{r}</strong>)}
           </p>
           <button onClick={onBack} className="w-full rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 py-3 font-bold">بازگشت به ورود</button>
         </div>
       ) : (
         <form onSubmit={submit} className="space-y-4">
-          <Field label="ایمیل یا شماره موبایل" value={emailOrPhone} onChange={setEmailOrPhone} required />
+          <Field label="ایمیل یا موبایل" value={emailOrPhone} onChange={setEmailOrPhone} required />
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
-          <button disabled={busy} className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white py-3 font-bold">{busy ? 'در حال بررسی...' : 'یافتن نام کاربری'}</button>
-          <button type="button" onClick={onBack} className="w-full mt-2 text-sm font-medium text-slate-500 hover:text-slate-800">بازگشت</button>
+          <button disabled={busy} className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white py-3 font-bold">{busy ? 'در حال بررسی...' : 'بازیابی نام کاربری'}</button>
+          <button type="button" onClick={onBack} className="w-full mt-2 text-sm text-slate-500 hover:text-slate-800">بازگشت</button>
         </form>
       )}
     </AuthShell>
@@ -280,17 +283,16 @@ const RecoverPassword = ({ onBack }: { onBack: () => void }) => {
           <Field label="نام کاربری" value={username} onChange={setUsername} required />
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
           <button disabled={busy} className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white py-3 font-bold">{busy ? 'در حال بررسی...' : 'ادامه'}</button>
-          <button type="button" onClick={onBack} className="w-full mt-2 text-sm font-medium text-slate-500 hover:text-slate-800">بازگشت</button>
+          <button type="button" onClick={onBack} className="w-full mt-2 text-sm text-slate-500 hover:text-slate-800">بازگشت</button>
         </form>
       ) : (
         <form onSubmit={submitRecovery} className="space-y-4">
-          <div className="p-4 bg-slate-50 rounded-xl mb-4 text-sm font-medium text-slate-700 text-center">نام کاربری: {username}</div>
-          <Field label={`سوال اول: ${q1}`} value={a1} onChange={setA1} required />
-          <Field label={`سوال دوم: ${q2}`} value={a2} onChange={setA2} required />
+          <Field label={q1} value={a1} onChange={setA1} required />
+          <Field label={q2} value={a2} onChange={setA2} required />
           <Field label="رمز عبور جدید" value={newPassword} onChange={setNewPassword} type="password" required />
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
-          <button disabled={busy} className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white py-3 font-bold">{busy ? 'در حال تغییر رمز...' : 'تغییر رمز عبور'}</button>
-          <button type="button" onClick={() => setStep(1)} className="w-full mt-2 text-sm font-medium text-slate-500 hover:text-slate-800">تغییر نام کاربری</button>
+          <button disabled={busy} className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white py-3 font-bold">{busy ? 'در حال اعمال...' : 'تغییر رمز عبور'}</button>
+          <button type="button" onClick={() => setStep(1)} className="w-full mt-2 text-sm text-slate-500 hover:text-slate-800">تغییر نام کاربری</button>
         </form>
       )}
     </AuthShell>
@@ -316,3 +318,6 @@ const AuthShell = ({ title, subtitle, children }: { title: string; subtitle?: st
     </div>
   </div>
 );
+`;
+
+fs.writeFileSync('src/components/AuthGate.tsx', content);

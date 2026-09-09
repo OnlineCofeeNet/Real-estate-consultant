@@ -9,7 +9,7 @@ const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
 const ATTEMPT_WINDOW_MS = 60 * 1000;
 
-type StoredSession = {
+export type StoredSession = {
   userId: number;
   username: string;
   role: UserRole;
@@ -30,11 +30,11 @@ function fromBase64(value: string): Uint8Array {
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 
-function randomSalt(): string {
+export function randomSalt(): string {
   return toBase64(crypto.getRandomValues(new Uint8Array(16)));
 }
 
-async function derivePasswordHash(password: string, salt: string): Promise<string> {
+export async function derivePasswordHash(password: string, salt: string): Promise<string> {
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(password),
@@ -50,14 +50,14 @@ async function derivePasswordHash(password: string, salt: string): Promise<strin
   return toBase64(new Uint8Array(bits));
 }
 
-function constantTimeEqual(a: string, b: string): boolean {
+export function constantTimeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let result = 0;
   for (let i = 0; i < a.length; i += 1) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return result === 0;
 }
 
-function isValidPassword(password: string): boolean {
+export function isValidPassword(password: string): boolean {
   return password.length >= 8 && /[A-Za-z]/.test(password) && /\d/.test(password);
 }
 
@@ -82,7 +82,7 @@ function assertLoginNotThrottled(): void {
   const state = readAttempts();
   if (state.count >= MAX_ATTEMPTS && Date.now() - state.firstAttemptAt < ATTEMPT_WINDOW_MS) {
     const seconds = Math.ceil((ATTEMPT_WINDOW_MS - (Date.now() - state.firstAttemptAt)) / 1000);
-    throw new Error(`تلاش‌های ورود بیش از حد مجاز است. ${seconds} ثانیه دیگر دوباره تلاش کنید.`);
+    throw new Error(`تلاش‌های بیش از حد مجاز است. ${seconds} ثانیه دیگر دوباره تلاش کنید.`);
   }
 }
 
@@ -99,9 +99,7 @@ async function writeAuthAudit(description: string, entityId?: string): Promise<v
       description,
       createdAt: Date.now(),
     });
-  } catch {
-    // Authentication must remain available even if local audit storage fails.
-  }
+  } catch {}
 }
 
 export function hasActiveSession(): boolean {
@@ -164,7 +162,14 @@ export async function createFirstAdmin(username: string, password: string): Prom
 
   const salt = randomSalt();
   const passwordHash = await derivePasswordHash(password, salt);
-  const user: AuthUser = { username: normalizedUsername, passwordHash, salt, role: 'admin', createdAt: Date.now() };
+
+  const user: AuthUser = { 
+    username: normalizedUsername, 
+    passwordHash, 
+    salt, 
+    role: 'admin', 
+    createdAt: Date.now() 
+  };
   const userId = await db.users.add(user);
   const session = establishSession({ ...user, id: userId });
   await writeAuthAudit(`ایجاد حساب مدیر اولیه: ${normalizedUsername}`, String(userId));
@@ -180,14 +185,12 @@ export async function login(username: string, password: string): Promise<StoredS
     await writeAuthAudit(`ورود ناموفق برای نام کاربری: ${normalizedUsername}`);
     throw new Error('نام کاربری یا رمز عبور نادرست است.');
   }
-
   const passwordHash = await derivePasswordHash(password, user.salt);
   if (!constantTimeEqual(passwordHash, user.passwordHash)) {
     recordFailedAttempt();
     await writeAuthAudit(`ورود ناموفق برای کاربر: ${normalizedUsername}`, String(user.id));
     throw new Error('نام کاربری یا رمز عبور نادرست است.');
   }
-
   clearFailedAttempts();
   await db.users.update(user.id!, { lastLoginAt: Date.now() });
   const session = establishSession(user);
@@ -208,10 +211,94 @@ function establishSession(user: AuthUser): StoredSession {
   return session;
 }
 
-export function canAccess(role: UserRole, permission: 'settings' | 'finance' | 'contracts' | 'customers' | 'dashboard'): boolean {
+export function canAccess(role: UserRole, permission: 'settings' | 'finance' | 'contracts' | 'customers' | 'dashboard' | 'users'): boolean {
   if (role === 'admin') return true;
+  if (permission === 'users') return false;
   if (permission === 'settings') return false;
   if (permission === 'finance') return role === 'manager' || role === 'accountant';
   if (permission === 'contracts' || permission === 'customers' || permission === 'dashboard') return true;
   return false;
+}
+
+export async function registerUser(username: string, password: string, email: string, phone: string, q1: string, a1: string, q2: string, a2: string): Promise<void> {
+  const normalizedUsername = username.trim().toLowerCase();
+  if (!/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) throw new Error('نام کاربری نامعتبر است.');
+  if (!isValidPassword(password)) throw new Error('رمز عبور ضعیف است.');
+  
+  const existing = await db.users.where('username').equals(normalizedUsername).first();
+  if (existing) throw new Error('این نام کاربری قبلاً ثبت شده است.');
+  
+  const salt = randomSalt();
+  const passwordHash = await derivePasswordHash(password, salt);
+  const securityAnswer1Hash = await derivePasswordHash(a1.trim().toLowerCase(), salt);
+  const securityAnswer2Hash = await derivePasswordHash(a2.trim().toLowerCase(), salt);
+  
+  const user: AuthUser = {
+    username: normalizedUsername,
+    passwordHash,
+    salt,
+    role: 'agent', // default role
+    securityQuestion1: q1,
+    securityAnswer1Hash,
+    securityQuestion2: q2,
+    securityAnswer2Hash,
+    email: email.trim().toLowerCase(),
+    phone: phone.trim(),
+    createdAt: Date.now()
+  };
+  await db.users.add(user);
+}
+
+export async function getUserSecurityQuestions(username: string) {
+  const normalizedUsername = username.trim().toLowerCase();
+  const user = await db.users.where('username').equals(normalizedUsername).first();
+  if (!user || !user.securityQuestion1 || !user.securityQuestion2) {
+    throw new Error('نام کاربری یافت نشد یا سوالات امنیتی تنظیم نشده‌اند.');
+  }
+  return { q1: user.securityQuestion1, q2: user.securityQuestion2 };
+}
+
+
+export async function recoverUsername(emailOrPhone: string): Promise<string[]> {
+  const query = emailOrPhone.trim().toLowerCase();
+  const allUsers = await db.users.toArray();
+  const matches = allUsers.filter(u => u.email === query || u.phone === query).map(u => u.username);
+  if (matches.length === 0) throw new Error('حسابی با این مشخصات یافت نشد.');
+  return matches;
+}
+export async function changePassword(userId: number, currentPassword: string, newPassword: string): Promise<void> {
+  const user = await db.users.get(userId);
+  if (!user) throw new Error('کاربر یافت نشد.');
+  
+  const currentHash = await derivePasswordHash(currentPassword, user.salt);
+  if (!constantTimeEqual(currentHash, user.passwordHash)) {
+    throw new Error('رمز عبور فعلی نادرست است.');
+  }
+  
+  if (!isValidPassword(newPassword)) throw new Error('رمز عبور جدید ضعیف است.');
+  const newPasswordHash = await derivePasswordHash(newPassword, user.salt);
+  
+  await db.users.update(userId, {
+    passwordHash: newPasswordHash,
+  });
+}
+
+export async function recoverPassword(username: string, a1: string, a2: string, newPassword: string): Promise<void> {
+  const normalizedUsername = username.trim().toLowerCase();
+  const user = await db.users.where('username').equals(normalizedUsername).first();
+  if (!user || !user.securityAnswer1Hash || !user.securityAnswer2Hash) {
+    throw new Error('اطلاعات نامعتبر است.');
+  }
+  
+  const testHash1 = await derivePasswordHash(a1.trim().toLowerCase(), user.salt);
+  const testHash2 = await derivePasswordHash(a2.trim().toLowerCase(), user.salt);
+  
+  if (!constantTimeEqual(testHash1, user.securityAnswer1Hash) || !constantTimeEqual(testHash2, user.securityAnswer2Hash)) {
+    throw new Error('پاسخ‌های امنیتی نادرست است.');
+  }
+  
+  if (!isValidPassword(newPassword)) throw new Error('رمز عبور جدید ضعیف است.');
+  
+  const newPasswordHash = await derivePasswordHash(newPassword, user.salt);
+  await db.users.update(user.id!, { passwordHash: newPasswordHash });
 }

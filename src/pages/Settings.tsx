@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveQuery } from '@/src/db/db';
+import { changePassword, getSession } from '../services/auth';
 import { db } from '../db/db';
 import toast from 'react-hot-toast';
 import axios from 'axios';

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveQuery } from '@/src/db/db';
 import { db } from '../db/db';
 import { paymentStatus } from '../services/finance';
 import type { Invoice, PaymentMethod } from '../types';

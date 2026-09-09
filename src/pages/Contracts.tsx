@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { db } from '../db/db';
 import toast from 'react-hot-toast';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveQuery } from '@/src/db/db';
 import moment from 'moment-jalaali';
 import { numberToWords } from '../utils/helpers';
 import { 

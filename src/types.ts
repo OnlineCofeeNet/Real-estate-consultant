@@ -10,6 +10,12 @@ export interface AuthUser {
   passwordHash: string;
   salt: string;
   role: UserRole;
+  securityQuestion1?: string;
+  securityAnswer1Hash?: string;
+  securityQuestion2?: string;
+  securityAnswer2Hash?: string;
+  phone?: string;
+  email?: string;
   createdAt: number;
   lastLoginAt?: number;
 }

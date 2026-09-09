@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import toast from 'react-hot-toast';
 import { Send, Book, MessageSquare, ExternalLink, FileSpreadsheet } from 'lucide-react';
 import axios from 'axios';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveQuery } from '@/src/db/db';
 import { db } from '../db/db';
 
 const Help = () => {

@@ -5,6 +5,7 @@ import cors from 'cors';
 import axios from 'axios';
 import FormData from 'form-data';
 import { createServer as createViteServer } from 'vite';
+import dbApiRouter from './src/routes/api.ts';
 
 // Paths for caching settings and registered bot users on disk
 const SETTINGS_FILE = path.join(process.cwd(), 'bot-settings.json');
@@ -799,6 +800,7 @@ async function startServer() {
 
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
+  app.use('/api', dbApiRouter);
 
   // Initialize bot listeners
   if (cachedSettings?.telegramToken) {

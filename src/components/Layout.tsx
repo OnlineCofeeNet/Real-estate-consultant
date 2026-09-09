@@ -1,7 +1,7 @@
 import React from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, FileText, Users, Settings, HelpCircle, WalletCards } from 'lucide-react';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { LayoutDashboard, FileText, Users, Settings, HelpCircle, WalletCards, ShieldCheck } from 'lucide-react';
+import { useLiveQuery } from '@/src/db/db';
 import { db } from '../db/db';
 import { UserMenu } from './AuthGate';
 import { canAccess, getSession } from '../services/auth';
@@ -23,6 +23,7 @@ const Layout = () => {
           {session && canAccess(session.role, 'contracts') && <NavItem to="/contracts" icon={<FileText size={20} />} label="قرارداد" />}
           {session && canAccess(session.role, 'finance') && <NavItem to="/finance" icon={<WalletCards size={20} />} label="مدیریت مالی" />}
           {session && canAccess(session.role, 'customers') && <NavItem to="/customers" icon={<Users size={20} />} label="مشتریان" />}
+            {canAccess(session?.role || 'agent', 'users') && <NavLink to="/users" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${isActive ? 'bg-emerald-50 text-emerald-700 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><ShieldCheck size={20} /> مدیریت کاربران</NavLink>}
           {session && canAccess(session.role, 'settings') && <NavItem to="/settings" icon={<Settings size={20} />} label="تنظیمات" />}
           <NavItem to="/help" icon={<HelpCircle size={20} />} label="راهنما" />
         </nav>
@@ -43,6 +44,7 @@ const Layout = () => {
           {session && canAccess(session.role, 'contracts') && <NavItem to="/contracts" icon={<FileText size={24} />} label="قرارداد" />}
           {session && canAccess(session.role, 'finance') && <NavItem to="/finance" icon={<WalletCards size={24} />} label="مالی" />}
           {session && canAccess(session.role, 'customers') && <NavItem to="/customers" icon={<Users size={24} />} label="مشتریان" />}
+            {canAccess(session?.role || 'agent', 'users') && <NavLink to="/users" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${isActive ? 'bg-emerald-50 text-emerald-700 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><ShieldCheck size={20} /> مدیریت کاربران</NavLink>}
           {session && canAccess(session.role, 'settings') && <NavItem to="/settings" icon={<Settings size={24} />} label="تنظیمات" />}
         </nav>
       </div>

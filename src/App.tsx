@@ -6,7 +6,7 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveQuery } from '@/src/db/db';
 import { db } from './db/db';
 import Layout from './components/Layout';
 import { AuthGate, ProtectedRoute } from './components/AuthGate';
@@ -17,6 +17,7 @@ import Contracts from './pages/Contracts';
 import Finance from './pages/Finance';
 import Settings from './pages/Settings';
 import Help from './pages/Help';
+import Users from './pages/Users';
 import { doAutoBackup, checkAndRestoreAutoBackup } from './utils/BackupManager';
 import { useAutoMessages } from './hooks/useAutoMessages';
 
@@ -83,6 +84,9 @@ export default function App() {
             </Route>
             <Route element={<ProtectedRoute permission="settings" />}>
               <Route path="settings" element={<Settings />} />
+            </Route>
+            <Route element={<ProtectedRoute permission="users" />}>
+              <Route path="users" element={<Users />} />
             </Route>
             <Route path="help" element={<Help />} />
           </Route>
