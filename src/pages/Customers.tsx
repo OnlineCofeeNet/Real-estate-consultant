@@ -352,9 +352,9 @@ const Customers = () => {
   };
 
   const exportToExcel = () => {
-    if (!customers || customers.length === 0) return;
+    if (!filteredCustomers || filteredCustomers.length === 0) return;
     const worksheet = XLSX.utils.json_to_sheet(
-      customers.map((c) => ({
+      filteredCustomers.map((c) => ({
         "نام و نام خانوادگی": c.fullName,
         "کد ملی": c.nationalId,
         موبایل: c.phone,
@@ -512,7 +512,7 @@ const Customers = () => {
       isBusinessCard && settings?.logoBase64 ? settings.logoBase64 : undefined;
 
     for (const cid of selectedCustomers) {
-      const customer = customers?.find((c) => c.id === cid);
+      const customer = allCustomers?.find((c) => c.id === cid);
       if (!customer) continue;
 
       const formattedText = messageText
@@ -911,7 +911,7 @@ const Customers = () => {
                     checked={Boolean(
                       customers &&
                       customers.length > 0 &&
-                      selectedCustomers.length === customers.length,
+                      customers.every(c => selectedCustomers.includes(c.id as number))
                     )}
                     onChange={(e) => {
                       if (e.target.checked && customers) {

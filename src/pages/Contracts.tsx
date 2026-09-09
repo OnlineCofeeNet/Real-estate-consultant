@@ -102,6 +102,10 @@ const Contracts = () => {
   const [listSearch, setListSearch] = useState('');
   const [listFilter, setListFilter] = useState<'all' | 'rent' | 'sale' | 'cheque'>('all');
 
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [listSearch, listFilter]);
+
   const calculateTotal = () => {
     let commission = 0;
     if (contractData.type === 'sale') {
@@ -124,6 +128,29 @@ const Contracts = () => {
     
     toast.success('محاسبات انجام شد');
     setStep(3);
+  };
+
+  const sendAutoSms = async (contract: Partial<Contract>) => {
+    if (!settings?.autoSendSmsInvoice || !settings?.smsProvider || settings.smsProvider === 'none') return;
+    try {
+      const amount = contract.totalPayable || 0;
+      const tpl = settings.smsTemplateText || 'فاکتور شماره {contract} صادر شد. مبلغ قابل پرداخت: {amount} تومان.';
+      
+      if (contract.party1?.phone) {
+        const msg1 = tpl
+          .replace('{name}', contract.party1.fullName || '')
+          .replace('{contract}', contract.contractNumber || '')
+          .replace('{amount}', toPersianDigits(amount.toString()));
+        axios.post('/api/bot/send-sms', { phone: contract.party1.phone, message: msg1 }).catch(()=>console.log('sms fail'));
+      }
+      if (contract.party2?.phone) {
+        const msg2 = tpl
+          .replace('{name}', contract.party2.fullName || '')
+          .replace('{contract}', contract.contractNumber || '')
+          .replace('{amount}', toPersianDigits(amount.toString()));
+        axios.post('/api/bot/send-sms', { phone: contract.party2.phone, message: msg2 }).catch(()=>console.log('sms fail'));
+      }
+    } catch(e) {}
   };
 
   const handleSave = async () => {
@@ -150,30 +177,64 @@ const Contracts = () => {
         status: 'completed',
         createdAt: Date.now()
       } as Contract);
-      
-  const sendAutoSms = async (contract: Partial<Contract>) => {
-    if (!settings?.autoSendSmsInvoice || !settings?.smsProvider || settings.smsProvider === 'none') return;
-    try {
-      const amount = contract.totalPayable || 0;
-      const tpl = settings.smsTemplateText || 'فاکتور شماره {contract} صادر شد. مبلغ قابل پرداخت: {amount} تومان.';
-      
-      if (contract.party1?.phone) {
-        const msg1 = tpl
-          .replace('{name}', contract.party1.fullName || '')
-          .replace('{contract}', contract.contractNumber || '')
-          .replace('{amount}', toPersianDigits(amount.toString()));
-        axios.post('/api/bot/send-sms', { phone: contract.party1.phone, message: msg1 }).catch(()=>console.log('sms fail'));
-      }
-      if (contract.party2?.phone) {
-        const msg2 = tpl
-          .replace('{name}', contract.party2.fullName || '')
-          .replace('{contract}', contract.contractNumber || '')
-          .replace('{amount}', toPersianDigits(amount.toString()));
-        axios.post('/api/bot/send-sms', { phone: contract.party2.phone, message: msg2 }).catch(()=>console.log('sms fail'));
-      }
-    } catch(e) {}
-  };
 
+      // Create invoices for Finance page
+      const invTotal = (contractData.totalPayable || 0) / 2;
+      const t = Date.now();
+      const p1InvoiceId = await db.invoices.add({
+        invoiceNumber: `INV-${Date.now()}-1`,
+        contractId: newId,
+        contractNumber: contractData.contractNumber,
+        customerId: contractData.party1?.id,
+        customerName: contractData.party1?.fullName || '',
+        customerPhone: contractData.party1?.phone || '',
+        partyRole: contractData.party1Role || '',
+        subtotal: (contractData.commission || 0) / 2,
+        tax: (contractData.tax || 0) / 2,
+        total: invTotal,
+        paidAmount: invTotal,
+        status: 'paid',
+        issuedAt: t,
+        dueDate: contractData.date
+      });
+      await db.payments.add({
+        invoiceId: p1InvoiceId,
+        contractId: newId,
+        amount: invTotal,
+        method: contractData.party1PaymentMethod as any || 'cash',
+        status: 'completed',
+        chequeDate: contractData.party1ChequeDate,
+        paidAt: t,
+        createdAt: t
+      });
+
+      const p2InvoiceId = await db.invoices.add({
+        invoiceNumber: `INV-${Date.now()}-2`,
+        contractId: newId,
+        contractNumber: contractData.contractNumber,
+        customerId: contractData.party2?.id,
+        customerName: contractData.party2?.fullName || '',
+        customerPhone: contractData.party2?.phone || '',
+        partyRole: contractData.party2Role || '',
+        subtotal: (contractData.commission || 0) / 2,
+        tax: (contractData.tax || 0) / 2,
+        total: invTotal,
+        paidAmount: invTotal,
+        status: 'paid',
+        issuedAt: t,
+        dueDate: contractData.date
+      });
+      await db.payments.add({
+        invoiceId: p2InvoiceId,
+        contractId: newId,
+        amount: invTotal,
+        method: contractData.party2PaymentMethod as any || 'cash',
+        status: 'completed',
+        chequeDate: contractData.party2ChequeDate,
+        paidAt: t,
+        createdAt: t
+      });
+      
       toast.success('قرارداد با موفقیت ثبت شد');
       sendAutoSms({ ...contractData, totalPayable: (contractData.commission || 0) + (contractData.tax || 0) });
 
@@ -402,6 +463,8 @@ const Contracts = () => {
         });
       }
 
+      sendAutoSms({ ...renewalContract, totalPayable });
+
       toast.success(`قرارداد برای ۱ سال تمدید شد (تا تاریخ ${toPersianDigits(renewalEndDate)}). یادآورهای هوشمند مجدداً فعال شدند.`);
       setRenewalModalOpen(false);
     } catch (err) {
@@ -524,13 +587,7 @@ const Contracts = () => {
     const party1Cheque = normalizeSearchQuery(c.party1ChequeDate);
     const party2Cheque = normalizeSearchQuery(c.party2ChequeDate);
 
-    
-  const totalPages = Math.ceil((filteredContracts.length || 1) / itemsPerPage);
-  const paginatedContracts = filteredContracts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-  const currentListIds = paginatedContracts.map(c => c.id!).filter(Boolean);
-  const isAllSelected = currentListIds.length > 0 && currentListIds.every(id => selectedContracts.has(id));
-
-  return (
+    return (
       contractNum.includes(query) ||
       party1Name.includes(query) ||
       party2Name.includes(query) ||
@@ -542,7 +599,6 @@ const Contracts = () => {
       party2Cheque.includes(query)
     );
   });
-
 
   const totalPages = Math.ceil((filteredContracts.length || 1) / itemsPerPage);
   const paginatedContracts = filteredContracts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -1715,7 +1771,7 @@ const Contracts = () => {
                     </div>
                     <div className="grid grid-cols-2 gap-4 text-sm mb-6">
                       <div><span className="text-slate-500">نام طرف قرارداد:</span> <strong className="mr-1">{printTarget === 'party1' ? contractData.party1?.fullName : contractData.party2?.fullName} ({printTarget === 'party1' ? contractData.party1Role : contractData.party2Role})</strong></div>
-                      <div><span className="text-slate-500">مبلغ پرداخت شده:</span> <strong className="mr-1">{toPersianDigits(formatCurrency(printTarget === 'party1' ? contractData.party1PaymentMethod === 'cash' ? contractData.totalPayable : contractData.totalPayable : contractData.totalPayable))} تومان</strong></div>
+                      <div><span className="text-slate-500">مبلغ پرداخت شده:</span> <strong className="mr-1">{formatCurrency((contractData.totalPayable || 0) / 2)}</strong></div>
                       <div><span className="text-slate-500">روش پرداخت:</span> <strong className="mr-1">{printTarget === 'party1' ? (contractData.party1PaymentMethod === 'pos' ? 'کارتخوان' : contractData.party1PaymentMethod === 'cash' ? 'نقدی' : contractData.party1PaymentMethod === 'transfer' ? 'انتقال وجه' : 'چک') : (contractData.party2PaymentMethod === 'pos' ? 'کارتخوان' : contractData.party2PaymentMethod === 'cash' ? 'نقدی' : contractData.party2PaymentMethod === 'transfer' ? 'انتقال وجه' : 'چک')}</strong></div>
                       <div><span className="text-slate-500">تاریخ پرداخت:</span> <strong className="mr-1 font-mono">{toPersianDigits(contractData.date)}</strong></div>
                     </div>

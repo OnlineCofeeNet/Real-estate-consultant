@@ -118,7 +118,10 @@ function resolveChatId(rawChatId: string | number, platform: string): {
   const withoutAt = cleaned.replace(/^@/, '').toLowerCase().trim();
 
   // 1. Direct match by registered Chat ID across botUsers
-  const matchedById = botUsers.find(u => u.chatId === cleaned);
+  const matchedByIdPlatform = botUsers.find(u => u.chatId === cleaned && u.platform === platform);
+  const matchedByIdAny = botUsers.find(u => u.chatId === cleaned);
+  const matchedById = matchedByIdPlatform || matchedByIdAny;
+
   if (matchedById) {
     const platName = matchedById.platform === 'telegram' ? 'تلگرام' : matchedById.platform === 'rubika' ? 'روبیکا' : 'بله';
     return {
@@ -1132,10 +1135,39 @@ async function startServer() {
     const token = cachedSettings?.smsToken;
     const line = cachedSettings?.smsLineNumber;
     
-    console.log(`Sending SMS via ${provider} to ${phone}:`, message);
-    
-    // Mock successful response for now as real API requires valid tokens
-    return res.json({ success: true, message: 'پیامک با موفقیت به صف ارسال افزوده شد.' });
+    if (provider === 'none' || !provider || !token) {
+      console.log(`Simulated SMS to ${phone}:`, message);
+      return res.json({ success: true, message: 'پیامک شبیه‌سازی شد' });
+    }
+
+    try {
+      if (provider === 'sms.ir') {
+        // SMS.ir V2 API
+        await axios.post('https://api.sms.ir/v1/send/bulk', {
+          lineNumber: line,
+          MessageTexts: [message],
+          Mobiles: [phone]
+        }, {
+          headers: { 'X-API-KEY': token, 'Accept': 'text/plain', 'Content-Type': 'application/json' }
+        });
+      } else if (provider === 'farazsms') {
+        // FarazSMS
+        await axios.post('https://ippanel.com/services.jspd', {
+          op: 'send',
+          uname: token.split(':')[0] || '', // token typically uname:pass
+          pass: token.split(':')[1] || '',
+          message: message,
+          from: line,
+          to: [phone]
+        });
+      } else {
+        console.log(`Unsupported SMS provider ${provider} to ${phone}:`, message);
+      }
+      return res.json({ success: true, message: 'پیامک با موفقیت ارسال شد' });
+    } catch (err: any) {
+      console.error('SMS Send Error:', err.message);
+      return res.json({ success: false, error: 'خطا در ارسال پیامک', details: err.message });
+    }
   });
 
   // API Route: Check Bot Status (Supports Telegram, Bale and Rubika)

@@ -62,6 +62,7 @@ export interface Contract {
   party2PosReceipt?: string;
   party1ChequeDate?: string;
   party2ChequeDate?: string;
+  party1SharePercent?: number;
   rentDueDay?: number;
   renewalDate?: string;
   renewedCount?: number;
@@ -113,6 +114,9 @@ export interface Settings {
   currency: 'ریال' | 'تومان';
   commissionRate: number;
   taxRate: number;
+  rentDepositConversionRate?: number;
+  rentCommissionPercent?: number;
+  defaultParty1SharePercent?: number;
   economicCode?: string;
   nationalId?: string;
   posIp: string;
