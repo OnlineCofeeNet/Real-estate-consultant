@@ -1,15 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   Building2, Save, X, MapPin, Home, Banknote, Ruler,
-  Layers, Calendar, Car, Hash, FileText, CheckSquare
+  Car, Hash, FileText, CheckSquare, Plus, Search, Pencil, Trash2, Filter
 } from 'lucide-react';
-import { db } from '../db/db';
+import { db, useLiveQuery } from '../db/db';
 import type {
   Property, PropertyType, TransactionType, PropertyStatus, PropertyFeature, Customer
 } from '../types';
-import { useLiveQuery } from '../db/db';
 
 const PROPERTY_TYPES: { value: PropertyType; label: string }[] = [
   { value: 'apartment', label: 'آپارتمان' },
@@ -86,21 +85,279 @@ function generatePropertyCode(): string {
   return `P-${year}-${rand}`;
 }
 
+function labelOf<T extends string>(list: { value: T; label: string }[], value?: T) {
+  return list.find((i) => i.value === value)?.label || value || '—';
+}
+
+function formatPrice(n?: number) {
+  if (n == null || Number.isNaN(n)) return '—';
+  return new Intl.NumberFormat('fa-IR').format(n);
+}
+
 export default function Properties() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const editId = searchParams.get('id');
+  const mode = searchParams.get('mode'); // 'new' | null
 
+  const showForm = mode === 'new' || Boolean(editId);
+
+  const properties = useLiveQuery(() => db.properties.toArray()) || [];
+  const customers = useLiveQuery(() => db.customers.toArray()) || [];
+
+  // Filters
+  const [q, setQ] = useState('');
+  const [filterType, setFilterType] = useState<PropertyType | ''>('');
+  const [filterTx, setFilterTx] = useState<TransactionType | ''>('');
+  const [filterStatus, setFilterStatus] = useState<PropertyStatus | ''>('');
+
+  const filtered = useMemo(() => {
+    const query = q.trim().toLowerCase();
+    return properties
+      .filter((p) => {
+        if (filterType && p.propertyType !== filterType) return false;
+        if (filterTx && p.transactionType !== filterTx) return false;
+        if (filterStatus && p.status !== filterStatus) return false;
+        if (!query) return true;
+        const hay = [p.code, p.title, p.address, p.description]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return hay.includes(query);
+      })
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }, [properties, q, filterType, filterTx, filterStatus]);
+
+  const openNew = () => setSearchParams({ mode: 'new' });
+  const openEdit = (id: number) => setSearchParams({ id: String(id) });
+  const closeForm = () => setSearchParams({});
+
+  const handleDelete = async (p: Property) => {
+    if (!p.id) return;
+    if (!confirm(`آیا از حذف ملک «${p.title}» مطمئن هستید؟`)) return;
+    try {
+      await db.properties.delete(p.id);
+      toast.success('ملک حذف شد');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || 'خطا در حذف ملک');
+    }
+  };
+
+  if (showForm) {
+    return (
+      <PropertyForm
+        editId={editId ? Number(editId) : undefined}
+        customers={customers}
+        onClose={closeForm}
+        onSaved={(id) => setSearchParams({ id: String(id) })}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-5" dir="rtl">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+            <Building2 size={22} />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-slate-800">املاک</h1>
+            <p className="text-sm text-slate-500">{filtered.length} ملک</p>
+          </div>
+        </div>
+        <button
+          onClick={openNew}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition font-medium"
+        >
+          <Plus size={18} />
+          ثبت ملک جدید
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <div className="flex items-center gap-2 mb-3 text-slate-600 text-sm font-medium">
+          <Filter size={16} />
+          فیلتر و جستجو
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="relative">
+            <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              className="input pr-9"
+              placeholder="جستجو در کد، عنوان، آدرس..."
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
+          <select className="input" value={filterType} onChange={(e) => setFilterType(e.target.value as PropertyType | '')}>
+            <option value="">همه انواع ملک</option>
+            {PROPERTY_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+          <select className="input" value={filterTx} onChange={(e) => setFilterTx(e.target.value as TransactionType | '')}>
+            <option value="">همه انواع معامله</option>
+            {TRANSACTION_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+          <select className="input" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as PropertyStatus | '')}>
+            <option value="">همه وضعیت‌ها</option>
+            {PROPERTY_STATUSES.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* List */}
+      {filtered.length === 0 ? (
+        <div className="bg-white rounded-xl border border-dashed border-slate-300 p-12 text-center text-slate-500">
+          <Building2 className="mx-auto mb-3 text-slate-300" size={40} />
+          <p className="font-medium">ملکی یافت نشد</p>
+          <p className="text-sm mt-1">با دکمه «ثبت ملک جدید» اولین ملک را اضافه کنید.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {filtered.map((p) => (
+            <article
+              key={p.id}
+              className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition overflow-hidden flex flex-col"
+            >
+              <div className="p-4 flex-1 space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="text-xs text-slate-400 font-mono">{p.code}</div>
+                    <h3 className="font-bold text-slate-800 leading-snug mt-0.5">{p.title}</h3>
+                  </div>
+                  <StatusBadge status={p.status} />
+                </div>
+
+                <div className="flex flex-wrap gap-1.5 text-xs">
+                  <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                    {labelOf(PROPERTY_TYPES, p.propertyType)}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
+                    {labelOf(TRANSACTION_TYPES, p.transactionType)}
+                  </span>
+                  {p.area != null && (
+                    <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                      {p.area} متر
+                    </span>
+                  )}
+                </div>
+
+                <div className="text-sm text-slate-600 space-y-1">
+                  {p.transactionType === 'sale' && p.price != null && (
+                    <div>قیمت: <strong className="text-slate-800">{formatPrice(p.price)}</strong> ریال</div>
+                  )}
+                  {(p.transactionType === 'rent' || p.transactionType === 'rent_mortgage' || p.transactionType === 'mortgage') && (
+                    <>
+                      {p.deposit != null && (
+                        <div>ودیعه: <strong className="text-slate-800">{formatPrice(p.deposit)}</strong></div>
+                      )}
+                      {p.rent != null && (
+                        <div>اجاره: <strong className="text-slate-800">{formatPrice(p.rent)}</strong></div>
+                      )}
+                    </>
+                  )}
+                  {p.address && (
+                    <div className="flex items-start gap-1 text-slate-500 text-xs mt-1">
+                      <MapPin size={12} className="mt-0.5 shrink-0" />
+                      <span className="line-clamp-2">{p.address}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="px-4 py-3 border-t border-slate-100 flex gap-2 bg-slate-50/50">
+                <button
+                  onClick={() => openEdit(p.id!)}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition"
+                >
+                  <Pencil size={14} />
+                  ویرایش
+                </button>
+                <button
+                  onClick={() => handleDelete(p)}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm text-rose-600 hover:bg-rose-50 transition"
+                  title="حذف"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+
+      <style>{`
+        .input {
+          width: 100%;
+          padding: 0.55rem 0.75rem;
+          border: 1px solid #e2e8f0;
+          border-radius: 0.5rem;
+          background: white;
+          font-size: 0.9rem;
+          outline: none;
+          transition: border-color 0.15s;
+        }
+        .input:focus {
+          border-color: #10b981;
+          box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+        }
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status?: PropertyStatus }) {
+  const map: Record<PropertyStatus, string> = {
+    available: 'bg-emerald-100 text-emerald-700',
+    reserved: 'bg-amber-100 text-amber-700',
+    sold: 'bg-slate-200 text-slate-700',
+    rented: 'bg-blue-100 text-blue-700',
+    archived: 'bg-slate-100 text-slate-500',
+  };
+  const cls = status ? map[status] : 'bg-slate-100 text-slate-500';
+  return (
+    <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${cls}`}>
+      {labelOf(PROPERTY_STATUSES, status)}
+    </span>
+  );
+}
+
+// =====================
+// فرم ثبت / ویرایش
+// =====================
+function PropertyForm({
+  editId,
+  customers,
+  onClose,
+  onSaved,
+}: {
+  editId?: number;
+  customers: Customer[];
+  onClose: () => void;
+  onSaved: (id: number) => void;
+}) {
   const [form, setForm] = useState<Property>({ ...emptyForm, code: generatePropertyCode() });
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(!!editId);
 
-  const customers = useLiveQuery(() => db.customers.toArray()) || [];
-
   useEffect(() => {
     if (!editId) return;
     setLoading(true);
-    db.properties.get(Number(editId))
+    db.properties.get(editId)
       .then((p) => {
         if (p) setForm(p);
         else toast.error('ملک یافت نشد');
@@ -123,15 +380,8 @@ export default function Properties() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!form.code.trim()) {
-      toast.error('کد ملک الزامی است');
-      return;
-    }
-    if (!form.title.trim()) {
-      toast.error('عنوان ملک الزامی است');
-      return;
-    }
+    if (!form.code.trim()) return toast.error('کد ملک الزامی است');
+    if (!form.title.trim()) return toast.error('عنوان ملک الزامی است');
 
     setSaving(true);
     try {
@@ -147,62 +397,44 @@ export default function Properties() {
       if (form.id) {
         await db.properties.put(payload);
         toast.success('ملک با موفقیت ویرایش شد');
+        onSaved(form.id);
       } else {
         const id = await db.properties.add(payload);
         toast.success('ملک با موفقیت ثبت شد');
-        // بعد از ثبت، به حالت ویرایش همان ملک برو
-        navigate(`/properties?id=${id}`, { replace: true });
+        onSaved(id);
       }
     } catch (err: any) {
       console.error(err);
-      toast.error(err?.response?.data?.message || 'خطا در ذخیره‌سازی ملک');
+      toast.error(err?.response?.data?.error || err?.response?.data?.message || 'خطا در ذخیره‌سازی ملک');
     } finally {
       setSaving(false);
     }
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64 text-slate-500">
-        در حال بارگذاری...
-      </div>
-    );
+    return <div className="flex items-center justify-center h-64 text-slate-500">در حال بارگذاری...</div>;
   }
 
   const isEdit = Boolean(form.id);
 
   return (
     <div className="space-y-6" dir="rtl">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
             <Building2 size={22} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-800">
-              {isEdit ? 'ویرایش ملک' : 'ثبت ملک جدید'}
-            </h1>
-            <p className="text-sm text-slate-500">
-              {isEdit ? `کد: ${form.code}` : 'اطلاعات ملک را وارد کنید'}
-            </p>
+            <h1 className="text-xl font-bold text-slate-800">{isEdit ? 'ویرایش ملک' : 'ثبت ملک جدید'}</h1>
+            <p className="text-sm text-slate-500">{isEdit ? `کد: ${form.code}` : 'اطلاعات ملک را وارد کنید'}</p>
           </div>
         </div>
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => navigate('/properties')}
-            className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition flex items-center gap-2"
-          >
+          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition flex items-center gap-2">
             <X size={16} />
-            انصراف
+            بازگشت به لیست
           </button>
-          <button
-            type="submit"
-            form="property-form"
-            disabled={saving}
-            className="px-5 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition flex items-center gap-2 disabled:opacity-60"
-          >
+          <button type="submit" form="property-form" disabled={saving} className="px-5 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition flex items-center gap-2 disabled:opacity-60">
             <Save size={16} />
             {saving ? 'در حال ذخیره...' : isEdit ? 'ذخیره تغییرات' : 'ثبت ملک'}
           </button>
@@ -210,194 +442,84 @@ export default function Properties() {
       </div>
 
       <form id="property-form" onSubmit={handleSubmit} className="space-y-6">
-        {/* اطلاعات اصلی */}
         <Section title="اطلاعات اصلی" icon={<Home size={18} />}>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <Field label="کد ملک" required>
               <div className="relative">
                 <Hash size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  className="input pr-9"
-                  value={form.code}
-                  onChange={(e) => update('code', e.target.value)}
-                  placeholder="P-1403-1001"
-                  required
-                />
+                <input className="input pr-9" value={form.code} onChange={(e) => update('code', e.target.value)} required />
               </div>
             </Field>
-
             <Field label="عنوان ملک" required className="md:col-span-2">
-              <input
-                className="input"
-                value={form.title}
-                onChange={(e) => update('title', e.target.value)}
-                placeholder="مثلاً: آپارتمان ۱۲۰ متری نیاوران"
-                required
-              />
+              <input className="input" value={form.title} onChange={(e) => update('title', e.target.value)} placeholder="مثلاً: آپارتمان ۱۲۰ متری نیاوران" required />
             </Field>
-
             <Field label="نوع ملک">
-              <select
-                className="input"
-                value={form.propertyType}
-                onChange={(e) => update('propertyType', e.target.value as PropertyType)}
-              >
-                {PROPERTY_TYPES.map((t) => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
+              <select className="input" value={form.propertyType} onChange={(e) => update('propertyType', e.target.value as PropertyType)}>
+                {PROPERTY_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </Field>
-
             <Field label="نوع معامله">
-              <select
-                className="input"
-                value={form.transactionType}
-                onChange={(e) => update('transactionType', e.target.value as TransactionType)}
-              >
-                {TRANSACTION_TYPES.map((t) => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
+              <select className="input" value={form.transactionType} onChange={(e) => update('transactionType', e.target.value as TransactionType)}>
+                {TRANSACTION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </Field>
-
             <Field label="وضعیت">
-              <select
-                className="input"
-                value={form.status}
-                onChange={(e) => update('status', e.target.value as PropertyStatus)}
-              >
-                {PROPERTY_STATUSES.map((s) => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
-                ))}
+              <select className="input" value={form.status} onChange={(e) => update('status', e.target.value as PropertyStatus)}>
+                {PROPERTY_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </Field>
           </div>
         </Section>
 
-        {/* قیمت‌ها */}
         <Section title="قیمت‌ها" icon={<Banknote size={18} />}>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Field label="قیمت فروش (ریال)">
-              <input
-                type="number"
-                className="input"
-                value={form.price ?? ''}
-                onChange={(e) => update('price', e.target.value ? Number(e.target.value) : undefined)}
-                placeholder="۰"
-                min={0}
-              />
+              <input type="number" className="input" value={form.price ?? ''} onChange={(e) => update('price', e.target.value ? Number(e.target.value) : undefined)} min={0} />
             </Field>
             <Field label="ودیعه / رهن (ریال)">
-              <input
-                type="number"
-                className="input"
-                value={form.deposit ?? ''}
-                onChange={(e) => update('deposit', e.target.value ? Number(e.target.value) : undefined)}
-                placeholder="۰"
-                min={0}
-              />
+              <input type="number" className="input" value={form.deposit ?? ''} onChange={(e) => update('deposit', e.target.value ? Number(e.target.value) : undefined)} min={0} />
             </Field>
             <Field label="اجاره ماهانه (ریال)">
-              <input
-                type="number"
-                className="input"
-                value={form.rent ?? ''}
-                onChange={(e) => update('rent', e.target.value ? Number(e.target.value) : undefined)}
-                placeholder="۰"
-                min={0}
-              />
+              <input type="number" className="input" value={form.rent ?? ''} onChange={(e) => update('rent', e.target.value ? Number(e.target.value) : undefined)} min={0} />
             </Field>
           </div>
         </Section>
 
-        {/* مشخصات فیزیکی */}
         <Section title="مشخصات فیزیکی" icon={<Ruler size={18} />}>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             <Field label="متراژ (متر)">
-              <input
-                type="number"
-                className="input"
-                value={form.area ?? ''}
-                onChange={(e) => update('area', e.target.value ? Number(e.target.value) : undefined)}
-                min={0}
-                step="0.1"
-              />
+              <input type="number" className="input" value={form.area ?? ''} onChange={(e) => update('area', e.target.value ? Number(e.target.value) : undefined)} min={0} step="0.1" />
             </Field>
             <Field label="تعداد اتاق">
-              <input
-                type="number"
-                className="input"
-                value={form.bedrooms ?? ''}
-                onChange={(e) => update('bedrooms', e.target.value ? Number(e.target.value) : undefined)}
-                min={0}
-              />
+              <input type="number" className="input" value={form.bedrooms ?? ''} onChange={(e) => update('bedrooms', e.target.value ? Number(e.target.value) : undefined)} min={0} />
             </Field>
             <Field label="تعداد سرویس">
-              <input
-                type="number"
-                className="input"
-                value={form.bathrooms ?? ''}
-                onChange={(e) => update('bathrooms', e.target.value ? Number(e.target.value) : undefined)}
-                min={0}
-              />
+              <input type="number" className="input" value={form.bathrooms ?? ''} onChange={(e) => update('bathrooms', e.target.value ? Number(e.target.value) : undefined)} min={0} />
             </Field>
             <Field label="طبقه">
-              <input
-                type="number"
-                className="input"
-                value={form.floor ?? ''}
-                onChange={(e) => update('floor', e.target.value ? Number(e.target.value) : undefined)}
-              />
+              <input type="number" className="input" value={form.floor ?? ''} onChange={(e) => update('floor', e.target.value ? Number(e.target.value) : undefined)} />
             </Field>
             <Field label="کل طبقات">
-              <input
-                type="number"
-                className="input"
-                value={form.totalFloors ?? ''}
-                onChange={(e) => update('totalFloors', e.target.value ? Number(e.target.value) : undefined)}
-                min={0}
-              />
+              <input type="number" className="input" value={form.totalFloors ?? ''} onChange={(e) => update('totalFloors', e.target.value ? Number(e.target.value) : undefined)} min={0} />
             </Field>
             <Field label="سال ساخت">
-              <input
-                type="number"
-                className="input"
-                value={form.yearBuilt ?? ''}
-                onChange={(e) => update('yearBuilt', e.target.value ? Number(e.target.value) : undefined)}
-                min={1300}
-                max={1500}
-              />
+              <input type="number" className="input" value={form.yearBuilt ?? ''} onChange={(e) => update('yearBuilt', e.target.value ? Number(e.target.value) : undefined)} min={1300} max={1500} />
             </Field>
             <Field label="تعداد پارکینگ">
               <div className="relative">
                 <Car size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="number"
-                  className="input pr-9"
-                  value={form.parkingSpaces ?? 0}
-                  onChange={(e) => update('parkingSpaces', Number(e.target.value) || 0)}
-                  min={0}
-                />
+                <input type="number" className="input pr-9" value={form.parkingSpaces ?? 0} onChange={(e) => update('parkingSpaces', Number(e.target.value) || 0)} min={0} />
               </div>
             </Field>
           </div>
         </Section>
 
-        {/* موقعیت */}
         <Section title="موقعیت" icon={<MapPin size={18} />}>
-          <div className="grid grid-cols-1 gap-4">
-            <Field label="آدرس کامل">
-              <textarea
-                className="input min-h-[80px]"
-                value={form.address || ''}
-                onChange={(e) => update('address', e.target.value)}
-                placeholder="خیابان، کوچه، پلاک، واحد..."
-              />
-            </Field>
-          </div>
+          <Field label="آدرس کامل">
+            <textarea className="input min-h-[80px]" value={form.address || ''} onChange={(e) => update('address', e.target.value)} placeholder="خیابان، کوچه، پلاک، واحد..." />
+          </Field>
         </Section>
 
-        {/* امکانات */}
         <Section title="امکانات" icon={<CheckSquare size={18} />}>
           <div className="flex flex-wrap gap-2">
             {FEATURE_OPTIONS.map((f) => {
@@ -420,43 +542,24 @@ export default function Properties() {
           </div>
         </Section>
 
-        {/* مالک و توضیحات */}
         <Section title="مالک و توضیحات" icon={<FileText size={18} />}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Field label="مالک (از لیست مشتریان)">
-              <select
-                className="input"
-                value={form.ownerId ?? ''}
-                onChange={(e) => update('ownerId', e.target.value ? Number(e.target.value) : undefined)}
-              >
+              <select className="input" value={form.ownerId ?? ''} onChange={(e) => update('ownerId', e.target.value ? Number(e.target.value) : undefined)}>
                 <option value="">— انتخاب کنید —</option>
-                {customers.map((c: Customer) => (
-                  <option key={c.id} value={c.id}>
-                    {c.fullName} {c.phone ? `(${c.phone})` : ''}
-                  </option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>{c.fullName}{c.phone ? ` (${c.phone})` : ''}</option>
                 ))}
               </select>
             </Field>
-
             <div className="md:col-span-2">
               <Field label="توضیحات">
-                <textarea
-                  className="input min-h-[100px]"
-                  value={form.description || ''}
-                  onChange={(e) => update('description', e.target.value)}
-                  placeholder="توضیحات عمومی ملک..."
-                />
+                <textarea className="input min-h-[100px]" value={form.description || ''} onChange={(e) => update('description', e.target.value)} />
               </Field>
             </div>
-
             <div className="md:col-span-2">
               <Field label="یادداشت داخلی (فقط برای مشاور)">
-                <textarea
-                  className="input min-h-[80px]"
-                  value={form.notes || ''}
-                  onChange={(e) => update('notes', e.target.value)}
-                  placeholder="یادداشت خصوصی..."
-                />
+                <textarea className="input min-h-[80px]" value={form.notes || ''} onChange={(e) => update('notes', e.target.value)} />
               </Field>
             </div>
           </div>
@@ -483,15 +586,7 @@ export default function Properties() {
   );
 }
 
-function Section({
-  title,
-  icon,
-  children,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
+function Section({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
       <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2 bg-slate-50/80">
@@ -503,22 +598,11 @@ function Section({
   );
 }
 
-function Field({
-  label,
-  required,
-  children,
-  className = '',
-}: {
-  label: string;
-  required?: boolean;
-  children: React.ReactNode;
-  className?: string;
-}) {
+function Field({ label, required, children, className = '' }: { label: string; required?: boolean; children: React.ReactNode; className?: string }) {
   return (
     <div className={className}>
       <label className="block text-xs font-medium text-slate-600 mb-1.5">
-        {label}
-        {required && <span className="text-rose-500 mr-1">*</span>}
+        {label}{required && <span className="text-rose-500 mr-1">*</span>}
       </label>
       {children}
     </div>
