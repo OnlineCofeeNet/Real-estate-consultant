@@ -197,7 +197,7 @@ export interface MessageLog {
 }
 
 export type AuditAction = 'create' | 'update' | 'delete' | 'restore' | 'export' | 'import' | 'payment';
-export type AuditEntity = 'customer' | 'contract' | 'settings' | 'invoice' | 'payment' | 'backup' | 'system' | 'property' | 'area' | 'property_media';
+export type AuditEntity = 'customer' | 'contract' | 'settings' | 'invoice' | 'payment' | 'backup' | 'system' | 'property' | 'area' | 'property_media' | 'property_request';
 
 export interface AuditLog {
   id?: number;
@@ -325,4 +325,34 @@ export interface Property {
   images?: PropertyImage[];
   media?: PropertyMedia[];
   primaryImage?: string;
+}
+
+export type RequestStatus = 'open' | 'matched' | 'closed' | 'archived';
+
+export interface PropertyRequest {
+  id?: number;
+  customerId: number;
+  title?: string;
+  transactionType: TransactionType;
+  propertyType?: PropertyType;
+  status: RequestStatus;
+  minPrice?: number;
+  maxPrice?: number;
+  minDeposit?: number;
+  maxDeposit?: number;
+  minRent?: number;
+  maxRent?: number;
+  minArea?: number;
+  maxArea?: number;
+  minBedrooms?: number;
+  maxBedrooms?: number;
+  areaId?: number;
+  preferredAreas?: string[];
+  features?: string[];
+  description?: string;
+  notes?: string;
+  assignedAgentId?: number;
+  createdAt: number;
+  updatedAt?: number;
+  expiresAt?: number;
 }
