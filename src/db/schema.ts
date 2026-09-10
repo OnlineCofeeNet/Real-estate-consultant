@@ -1,9 +1,9 @@
 import { relations } from 'drizzle-orm';
-import { integer, pgTable, serial, text, timestamp, bigint, boolean, jsonb, real } from 'drizzle-orm/pg-core';
+import { integer, pgTable, serial, text, bigint, boolean, jsonb, real } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
-  uid: text('uid').unique(), // Firebase Auth UID
+  uid: text('uid').unique(),
   username: text('username').notNull().unique(),
   passwordHash: text('password_hash'),
   salt: text('salt'),
@@ -31,7 +31,7 @@ export const customers = pgTable('customers', {
   rentDueDay: integer('rent_due_day'),
   autoSendMessages: boolean('auto_send_messages'),
   description: text('description'),
-  roles: jsonb('roles'), // array of strings
+  roles: jsonb('roles'),
   customerType: text('customer_type'),
   hasUncollectedCheque: boolean('has_uncollected_cheque'),
   hasDebt: boolean('has_debt'),
@@ -50,8 +50,8 @@ export const contracts = pgTable('contracts', {
   endDate: text('end_date'),
   party1Role: text('party1_role'),
   party2Role: text('party2_role'),
-  party1: jsonb('party1'), // Customer data
-  party2: jsonb('party2'), // Customer data
+  party1: jsonb('party1'),
+  party2: jsonb('party2'),
   type: text('type').notNull(),
   price: integer('price').notNull(),
   rent: integer('rent').notNull(),
@@ -107,7 +107,7 @@ export const payments = pgTable('payments', {
 });
 
 export const settings = pgTable('settings', {
-  id: serial('id').primaryKey(), // just id=1
+  id: serial('id').primaryKey(),
   data: jsonb('data').notNull(),
 });
 
@@ -133,82 +133,76 @@ export const auditLogs = pgTable('audit_logs', {
   createdAt: bigint('created_at', { mode: 'number' }),
 });
 
-// ========================
-// ماژول املاک (Properties)
-// ========================
-
-/** مناطق / محله‌ها */
 export const areas = pgTable('areas', {
   id: serial('id').primaryKey(),
-  name: text('name').notNull(),           // نام محله یا منطقه
-  city: text('city'),                     // شهر
-  parentId: integer('parent_id'),         // برای ساختار سلسله‌مراتبی (اختیاری)
+  name: text('name').notNull(),
+  city: text('city'),
+  parentId: integer('parent_id'),
   sortOrder: integer('sort_order').default(0),
   createdAt: bigint('created_at', { mode: 'number' }),
 });
 
-/** جدول اصلی املاک */
 export const properties = pgTable('properties', {
   id: serial('id').primaryKey(),
-
-  // شناسه و عنوان
-  code: text('code').notNull().unique(),  // کد اختصاصی ملک (مثلاً P-1403-001)
+  code: text('code').notNull().unique(),
   title: text('title').notNull(),
-
-  // نوع و وضعیت
-  propertyType: text('property_type').notNull(),       // apartment | villa | shop | land | office | warehouse | other
-  transactionType: text('transaction_type').notNull(), // sale | rent | mortgage | rent_mortgage
-  status: text('status').notNull().default('available'), // available | reserved | sold | rented | archived
-
-  // قیمت‌ها (به ریال ذخیره می‌شوند)
-  price: integer('price'),                // قیمت فروش
-  deposit: integer('deposit'),            // ودیعه / رهن
-  rent: integer('rent'),                  // اجاره ماهانه
-
-  // مشخصات فیزیکی
-  area: real('area'),                     // متراژ (متر مربع)
+  propertyType: text('property_type').notNull(),
+  transactionType: text('transaction_type').notNull(),
+  status: text('status').notNull().default('available'),
+  price: integer('price'),
+  deposit: integer('deposit'),
+  rent: integer('rent'),
+  area: real('area'),
   bedrooms: integer('bedrooms'),
   bathrooms: integer('bathrooms'),
   floor: integer('floor'),
   totalFloors: integer('total_floors'),
   yearBuilt: integer('year_built'),
   parkingSpaces: integer('parking_spaces').default(0),
-
-  // موقعیت
   address: text('address'),
-  areaId: integer('area_id'),             // لینک به جدول areas
+  areaId: integer('area_id'),
   latitude: real('latitude'),
   longitude: real('longitude'),
-
-  // امکانات (آرایه‌ای از رشته‌ها: ["elevator", "parking", "storage", "balcony", ...])
   features: jsonb('features').$type<string[]>(),
-
-  // توضیحات
   description: text('description'),
-  notes: text('notes'),                   // یادداشت داخلی مشاور
-
-  // روابط
-  ownerId: integer('owner_id'),           // مالک (customers.id)
-  assignedAgentId: integer('assigned_agent_id'), // مشاور مسئول (users.id)
-
-  // تاریخ‌ها
-  listedAt: bigint('listed_at', { mode: 'number' }),   // تاریخ آگهی شدن
+  notes: text('notes'),
+  ownerId: integer('owner_id'),
+  assignedAgentId: integer('assigned_agent_id'),
+  listedAt: bigint('listed_at', { mode: 'number' }),
   createdAt: bigint('created_at', { mode: 'number' }),
   updatedAt: bigint('updated_at', { mode: 'number' }),
 });
 
-/** تصاویر ملک */
+/** سازگاری با نسخه قبلی */
 export const propertyImages = pgTable('property_images', {
   id: serial('id').primaryKey(),
   propertyId: integer('property_id').notNull(),
-  url: text('url').notNull(),             // مسیر یا URL تصویر
+  url: text('url').notNull(),
   caption: text('caption'),
   isPrimary: boolean('is_primary').default(false),
   sortOrder: integer('sort_order').default(0),
   createdAt: bigint('created_at', { mode: 'number' }),
 });
 
-// Relations (برای استفاده آینده با Drizzle Query)
+/** رسانه ملک: عکس و فیلم */
+export const propertyMedia = pgTable('property_media', {
+  id: serial('id').primaryKey(),
+  propertyId: integer('property_id').notNull(),
+  type: text('type').notNull(), // image | video
+  url: text('url').notNull(),
+  thumbnailUrl: text('thumbnail_url'),
+  mimeType: text('mime_type'),
+  sizeBytes: integer('size_bytes'),
+  originalName: text('original_name'),
+  width: integer('width'),
+  height: integer('height'),
+  duration: integer('duration'), // seconds for video
+  caption: text('caption'),
+  isPrimary: boolean('is_primary').default(false),
+  sortOrder: integer('sort_order').default(0),
+  createdAt: bigint('created_at', { mode: 'number' }),
+});
+
 export const propertiesRelations = relations(properties, ({ one, many }) => ({
   owner: one(customers, {
     fields: [properties.ownerId],
@@ -219,11 +213,19 @@ export const propertiesRelations = relations(properties, ({ one, many }) => ({
     references: [areas.id],
   }),
   images: many(propertyImages),
+  media: many(propertyMedia),
 }));
 
 export const propertyImagesRelations = relations(propertyImages, ({ one }) => ({
   property: one(properties, {
     fields: [propertyImages.propertyId],
+    references: [properties.id],
+  }),
+}));
+
+export const propertyMediaRelations = relations(propertyMedia, ({ one }) => ({
+  property: one(properties, {
+    fields: [propertyMedia.propertyId],
     references: [properties.id],
   }),
 }));
