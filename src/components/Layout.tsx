@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, FileText, Users, Settings, HelpCircle, WalletCards, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, FileText, Users, Settings, HelpCircle, WalletCards, ShieldCheck, Building2 } from 'lucide-react';
 import { useLiveQuery } from '@/src/db/db';
 import { db } from '../db/db';
 import { UserMenu } from './AuthGate';
@@ -20,10 +20,15 @@ const Layout = () => {
         </div>
         <nav className="flex-1 flex flex-col py-4 gap-1 px-3">
           <NavItem to="/" icon={<LayoutDashboard size={20} />} label="داشبورد" />
+          {session && canAccess(session.role, 'properties') && <NavItem to="/properties" icon={<Building2 size={20} />} label="املاک" />}
           {session && canAccess(session.role, 'contracts') && <NavItem to="/contracts" icon={<FileText size={20} />} label="قرارداد" />}
           {session && canAccess(session.role, 'finance') && <NavItem to="/finance" icon={<WalletCards size={20} />} label="مدیریت مالی" />}
           {session && canAccess(session.role, 'customers') && <NavItem to="/customers" icon={<Users size={20} />} label="مشتریان" />}
-            {canAccess(session?.role || 'agent', 'users') && <NavLink to="/users" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${isActive ? 'bg-emerald-50 text-emerald-700 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><ShieldCheck size={20} /> مدیریت کاربران</NavLink>}
+          {canAccess(session?.role || 'agent', 'users') && (
+            <NavLink to="/users" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${isActive ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
+              <ShieldCheck size={20} /> مدیریت کاربران
+            </NavLink>
+          )}
           {session && canAccess(session.role, 'settings') && <NavItem to="/settings" icon={<Settings size={20} />} label="تنظیمات" />}
           <NavItem to="/help" icon={<HelpCircle size={20} />} label="راهنما" />
         </nav>
@@ -41,10 +46,9 @@ const Layout = () => {
         <main className="flex-1 overflow-y-auto p-4 pb-20 md:pb-4"><div className="max-w-7xl mx-auto h-full"><Outlet /></div></main>
         <nav className="md:hidden fixed bottom-0 w-full bg-slate-900 shadow-[0_-1px_3px_rgba(0,0,0,0.3)] flex justify-around z-20">
           <NavItem to="/" icon={<LayoutDashboard size={24} />} label="داشبورد" />
+          {session && canAccess(session.role, 'properties') && <NavItem to="/properties" icon={<Building2 size={24} />} label="املاک" />}
           {session && canAccess(session.role, 'contracts') && <NavItem to="/contracts" icon={<FileText size={24} />} label="قرارداد" />}
-          {session && canAccess(session.role, 'finance') && <NavItem to="/finance" icon={<WalletCards size={24} />} label="مالی" />}
           {session && canAccess(session.role, 'customers') && <NavItem to="/customers" icon={<Users size={24} />} label="مشتریان" />}
-            {canAccess(session?.role || 'agent', 'users') && <NavLink to="/users" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${isActive ? 'bg-emerald-50 text-emerald-700 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><ShieldCheck size={20} /> مدیریت کاربران</NavLink>}
           {session && canAccess(session.role, 'settings') && <NavItem to="/settings" icon={<Settings size={24} />} label="تنظیمات" />}
         </nav>
       </div>
