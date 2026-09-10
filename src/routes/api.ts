@@ -1,5 +1,5 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
-import { createHmac, randomBytes, pbkdf2Sync } from 'node:crypto';
+import { createHmac, randomBytes, pbkdf2Sync, timingSafeEqual } from 'node:crypto';
 import { db } from '../db/index.ts';
 import { customers, contracts, invoices, payments, messageLogs, auditLogs, settings, users } from '../db/schema.ts';
 import { eq, sql } from 'drizzle-orm';
@@ -9,7 +9,7 @@ import authRouter from './auth.ts';
 const router = Router();
 router.use(securityHeaders, apiRateLimit);
 
-const AUTH_SECRET = process.env.AUTH_SECRET || randomBytes(32).toString('hex');
+const AUTH_SECRET = process.env.AUTH_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('AUTH_SECRET must be configured in production'); })() : 'development-only-change-me');
 const SESSION_MAX_AGE_SECONDS = 8 * 60 * 60;
 const PASSWORD_ITERATIONS = 310_000;
 const USERNAME_RE = /^[a-z0-9._-]{3,40}$/;
@@ -32,11 +32,11 @@ function signSession(payload: SessionPayload) { const encoded = toBase64Url(JSON
 function verifySession(token: string): SessionPayload | null {
   const [encoded, signature] = token.split('.'); if (!encoded || !signature) return null;
   const expected = createHmac('sha256', AUTH_SECRET).update(encoded).digest('base64url');
-  if (signature !== expected) return null;
+  try { if (signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null; } catch { return null; }
   try { const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as SessionPayload; if (!payload.userId || !payload.username || !USER_ROLES.has(payload.role) || !payload.exp || payload.exp < Math.floor(Date.now() / 1000)) return null; return payload; } catch { return null; }
 }
 function passwordHash(password: string, salt: string) { return pbkdf2Sync(password, Buffer.from(salt, 'base64'), PASSWORD_ITERATIONS, 32, 'sha256').toString('base64'); }
-function isValidPassword(password: unknown): password is string { return typeof password === 'string' && password.length >= 8 && /[A-Za-z]/.test(password) && /\d/.test(password); }
+function isValidPassword(password: unknown): password is string { return typeof password === 'string' && password.length >= 8 && password.length <= 256 && /[A-Za-z]/.test(password) && /\d/.test(password); }
 function isValidUsername(username: unknown): username is string { return typeof username === 'string' && USERNAME_RE.test(username.trim().toLowerCase()); }
 function issueSession(user: { id: number; username: string; role: string }) { const payload: SessionPayload = { userId: user.id, username: user.username, role: user.role as UserRole, exp: Math.floor(Date.now() / 1000) + SESSION_MAX_AGE_SECONDS }; return { token: signSession(payload), user: { id: user.id, username: user.username, role: user.role } }; }
 function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
@@ -58,10 +58,10 @@ router.post('/auth/first-admin', async (req, res) => {
 });
 router.post('/auth/login', async (req, res) => {
   const username = normalizeUsername(req.body?.username); const password = req.body?.password;
-  if (!isValidUsername(username) || typeof password !== 'string') return res.status(400).json({ error: 'نام کاربری یا رمز عبور نامعتبر است.' });
+  if (!isValidUsername(username) || typeof password !== 'string' || password.length > 256) return res.status(400).json({ error: 'نام کاربری یا رمز عبور نامعتبر است.' });
   try {
     const result = await db.select().from(users).where(eq(users.username, username)); const user = result[0];
-    if (!user || !user.passwordHash || !user.salt || !USER_ROLES.has(user.role)) { await addAuditLog({ action: 'login_failed', entity: 'system', description: `ورود ناموفق برای نام کاربری: ${username}` }); return res.status(401).json({ error: 'نام کاربری یا رمز عبور نادرست است.' }); }
+    if (!user || !user.passwordHash || !user.salt || !USER_ROLES.has(user.role)) { await addAuditLog({ action: 'login_failed', entity: 'system', description: 'ورود ناموفق' }); return res.status(401).json({ error: 'نام کاربری یا رمز عبور نادرست است.' }); }
     const computed = passwordHash(password, user.salt);
     if (computed !== user.passwordHash) { await addAuditLog({ action: 'login_failed', entity: 'users', entityId: user.id, description: `ورود ناموفق برای کاربر: ${username}` }); return res.status(401).json({ error: 'نام کاربری یا رمز عبور نادرست است.' }); }
     await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id)); const session = issueSession({ id: user.id, username: user.username, role: user.role });
