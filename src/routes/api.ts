@@ -2,8 +2,10 @@ import { Router } from 'express';
 import { db } from '../db/index.ts';
 import { customers, contracts, invoices, payments, messageLogs, auditLogs, settings, users } from '../db/schema.ts';
 import { eq } from 'drizzle-orm';
+import { apiRateLimit, securityHeaders } from '../server/security.ts';
 
 const router = Router();
+router.use(securityHeaders, apiRateLimit);
 
 type TableSchema = typeof customers | typeof contracts | typeof invoices | typeof payments | typeof messageLogs | typeof auditLogs | typeof users;
 
@@ -32,7 +34,6 @@ const addAuditLog = async ({ action, entity, entityId, description, before, afte
       after,
     });
   } catch (error) {
-    // Audit failures must never turn a successful business operation into a 500.
     console.error('Audit Log Error:', error);
   }
 };
@@ -183,14 +184,10 @@ router.post('/contracts/complete', async (req, res) => {
 
   try {
     const result = await db.transaction(async (tx) => {
-      // Prevent accidental duplicate contract numbers when two clients submit concurrently.
       const existing = await tx.select({ id: contracts.id })
         .from(contracts)
         .where(eq(contracts.contractNumber, contract.contractNumber.trim()));
-      if (existing.length > 0) {
-        const duplicateError = new Error('DUPLICATE_CONTRACT_NUMBER');
-        throw duplicateError;
-      }
+      if (existing.length > 0) throw new Error('DUPLICATE_CONTRACT_NUMBER');
 
       const contractToInsert = { ...contract, contractNumber: contract.contractNumber.trim() };
       const contractResult = await tx.insert(contracts).values(contractToInsert).returning();
@@ -225,7 +222,6 @@ router.post('/contracts/complete', async (req, res) => {
 
       await insertInvoiceAndPayment(invoice1, payment1, '1');
       await insertInvoiceAndPayment(invoice2, payment2, '2');
-
       return resultData;
     });
 
