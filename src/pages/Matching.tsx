@@ -2,15 +2,26 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import {
-  GitCompare, Plus, Search, Send, Loader2, X, User, Building2
+  GitCompare, Plus, Send, Loader2, X, User, Building2, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { db, useLiveQuery } from '../db/db';
-import type { Customer, PropertyRequest, TransactionType, PropertyType } from '../types';
+import type { Customer, PropertyRequest, TransactionType, RequestStatus } from '../types';
+
+type BreakdownItem = {
+  key: string;
+  label: string;
+  weight: number;
+  earned: number;
+  max: number;
+  note?: string;
+};
 
 type MatchItem = {
   property: any;
   score: number;
+  tier?: string;
   reasons: string[];
+  breakdown?: BreakdownItem[];
 };
 
 const TX = [
@@ -30,6 +41,21 @@ const TYPES = [
   { value: 'warehouse', label: 'انبار' },
 ];
 
+const STATUS_LABEL: Record<string, string> = {
+  open: 'باز',
+  matched: 'مچ‌شده',
+  closed: 'بسته',
+  archived: 'بایگانی',
+};
+
+const TIER_META: Record<string, { label: string; cls: string }> = {
+  excellent: { label: 'عالی', cls: 'bg-emerald-600 text-white' },
+  good: { label: 'خوب', cls: 'bg-emerald-100 text-emerald-800' },
+  fair: { label: 'متوسط', cls: 'bg-amber-100 text-amber-800' },
+  weak: { label: 'ضعیف', cls: 'bg-slate-200 text-slate-700' },
+  none: { label: 'نامرتبط', cls: 'bg-rose-100 text-rose-700' },
+};
+
 export default function Matching() {
   const customers = useLiveQuery(() => db.customers.toArray()) || [];
   const [requests, setRequests] = useState<PropertyRequest[]>([]);
@@ -39,6 +65,7 @@ export default function Matching() {
   const [matching, setMatching] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [sharingId, setSharingId] = useState<number | null>(null);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const [form, setForm] = useState({
     customerId: '' as string | number,
@@ -78,6 +105,7 @@ export default function Matching() {
   const runMatch = async (requestId: number) => {
     setSelectedId(requestId);
     setMatching(true);
+    setExpandedId(null);
     try {
       const { data } = await axios.get(`/api/matching/requests/${requestId}/matches?minScore=35`);
       setMatches(data.matches || []);
@@ -86,6 +114,17 @@ export default function Matching() {
       setMatches([]);
     } finally {
       setMatching(false);
+    }
+  };
+
+  const changeStatus = async (id: number, status: RequestStatus, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await axios.put(`/api/matching/requests/${id}`, { status });
+      toast.success(`وضعیت: ${STATUS_LABEL[status] || status}`);
+      await loadRequests();
+    } catch {
+      toast.error('خطا در تغییر وضعیت');
     }
   };
 
@@ -148,7 +187,7 @@ export default function Matching() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-800">مچ فایل و درخواست</h1>
-            <p className="text-sm text-slate-500">ثبت نیاز مشتری · پیدا کردن فایل مشابه · ارسال بدون شماره مالک</p>
+            <p className="text-sm text-slate-500">تطبیق هوشمند · سطح کیفیت · جزئیات امتیاز</p>
           </div>
         </div>
         <button
@@ -160,10 +199,9 @@ export default function Matching() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* لیست درخواست‌ها */}
         <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 font-bold text-slate-700 text-sm flex items-center gap-2">
-            <User size={16} className="text-emerald-600" /> درخواست‌های باز
+            <User size={16} className="text-emerald-600" /> درخواست‌ها
           </div>
           <div className="divide-y divide-slate-100 max-h-[70vh] overflow-y-auto">
             {loading ? (
@@ -172,32 +210,50 @@ export default function Matching() {
               <div className="p-8 text-center text-slate-400 text-sm">درخواستی ثبت نشده است</div>
             ) : (
               requests.map((r) => (
-                <button
+                <div
                   key={r.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => runMatch(r.id!)}
-                  className={`w-full text-right px-4 py-3 hover:bg-slate-50 transition ${
+                  onKeyDown={(e) => e.key === 'Enter' && runMatch(r.id!)}
+                  className={`w-full text-right px-4 py-3 hover:bg-slate-50 transition cursor-pointer ${
                     selectedId === r.id ? 'bg-emerald-50' : ''
                   }`}
                 >
-                  <div className="font-medium text-slate-800">{r.title || customerName(r.customerId)}</div>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="font-medium text-slate-800">{r.title || customerName(r.customerId)}</div>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full shrink-0 ${
+                      r.status === 'open' ? 'bg-emerald-100 text-emerald-700'
+                        : r.status === 'matched' ? 'bg-blue-100 text-blue-700'
+                          : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {STATUS_LABEL[r.status] || r.status}
+                    </span>
+                  </div>
                   <div className="text-xs text-slate-500 mt-1">
                     {customerName(r.customerId)} · {TX.find((t) => t.value === r.transactionType)?.label}
                     {r.propertyType ? ` · ${TYPES.find((t) => t.value === r.propertyType)?.label}` : ''}
                   </div>
-                  <div className="text-xs text-slate-400 mt-0.5">
-                    {r.minArea || r.maxArea ? `متراژ ${r.minArea || '؟'}-${r.maxArea || '؟'} · ` : ''}
-                    {r.transactionType === 'sale'
-                      ? `بودجه ${r.minPrice || '؟'}-${r.maxPrice || '؟'}`
-                      : `ودیعه/اجاره ${r.minDeposit || '؟'}/${r.minRent || '؟'}`}
+                  <div className="flex flex-wrap gap-1 mt-2" onClick={(e) => e.stopPropagation()}>
+                    {(['open', 'matched', 'closed'] as RequestStatus[]).map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={(e) => changeStatus(r.id!, s, e)}
+                        className={`text-[10px] px-2 py-0.5 rounded border ${
+                          r.status === s ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-500'
+                        }`}
+                      >
+                        {STATUS_LABEL[s]}
+                      </button>
+                    ))}
                   </div>
-                </button>
+                </div>
               ))
             )}
           </div>
         </section>
 
-        {/* نتایج مچ */}
         <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 font-bold text-slate-700 text-sm flex items-center gap-2">
             <Building2 size={16} className="text-emerald-600" /> فایل‌های پیشنهادی
@@ -215,44 +271,90 @@ export default function Matching() {
               <p className="text-sm text-slate-400 text-center py-10">فایل مشابهی یافت نشد</p>
             )}
             {!matching &&
-              matches.map((m) => (
-                <div key={m.property.id} className="border border-slate-200 rounded-xl p-4 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <div className="text-xs text-slate-400 font-mono">{m.property.code}</div>
-                      <div className="font-bold text-slate-800">{m.property.title}</div>
+              matches.map((m) => {
+                const tier = m.tier || 'fair';
+                const meta = TIER_META[tier] || TIER_META.fair;
+                const open = expandedId === m.property.id;
+                return (
+                  <div key={m.property.id} className="border border-slate-200 rounded-xl p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="text-xs text-slate-400 font-mono">{m.property.code}</div>
+                        <div className="font-bold text-slate-800">{m.property.title}</div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="text-sm font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg">
+                          {m.score}%
+                        </span>
+                        <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${meta.cls}`}>
+                          {meta.label}
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-sm font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg">
-                      {m.score}%
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {m.reasons.map((r) => (
-                      <span key={r} className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                        {r}
-                      </span>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    disabled={sharingId === m.property.id}
-                    onClick={() => shareToCustomer(m.property.id, m.score)}
-                    className="w-full mt-1 inline-flex items-center justify-center gap-2 py-2 rounded-lg bg-slate-900 text-white text-sm hover:bg-slate-800 disabled:opacity-60"
-                  >
-                    {sharingId === m.property.id ? (
-                      <Loader2 className="animate-spin" size={16} />
-                    ) : (
-                      <Send size={16} />
+                    <div className="flex flex-wrap gap-1">
+                      {(m.reasons || []).map((r) => (
+                        <span key={r} className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                          {r}
+                        </span>
+                      ))}
+                    </div>
+
+                    {m.breakdown && m.breakdown.length > 0 && (
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedId(open ? null : m.property.id)}
+                          className="text-xs text-slate-500 hover:text-slate-800 inline-flex items-center gap-1"
+                        >
+                          {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          جزئیات امتیاز
+                        </button>
+                        {open && (
+                          <div className="mt-2 space-y-1.5 bg-slate-50 rounded-lg p-3">
+                            {m.breakdown.map((b) => {
+                              const pct = b.max > 0 ? Math.round((b.earned / b.max) * 100) : 0;
+                              return (
+                                <div key={b.key}>
+                                  <div className="flex justify-between text-[11px] text-slate-600 mb-0.5">
+                                    <span>{b.label}{b.note ? ` · ${b.note}` : ''}</span>
+                                    <span>{b.earned}/{b.max}</span>
+                                  </div>
+                                  <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                    <div
+                                      className={`h-full rounded-full ${
+                                        pct >= 75 ? 'bg-emerald-500' : pct >= 45 ? 'bg-amber-500' : 'bg-rose-400'
+                                      }`}
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     )}
-                    ارسال به مشتری (بدون تلفن مالک)
-                  </button>
-                </div>
-              ))}
+
+                    <button
+                      type="button"
+                      disabled={sharingId === m.property.id}
+                      onClick={() => shareToCustomer(m.property.id, m.score)}
+                      className="w-full mt-1 inline-flex items-center justify-center gap-2 py-2 rounded-lg bg-slate-900 text-white text-sm hover:bg-slate-800 disabled:opacity-60"
+                    >
+                      {sharingId === m.property.id ? (
+                        <Loader2 className="animate-spin" size={16} />
+                      ) : (
+                        <Send size={16} />
+                      )}
+                      ارسال به مشتری (بدون تلفن مالک)
+                    </button>
+                  </div>
+                );
+              })}
           </div>
         </section>
       </div>
 
-      {/* فرم درخواست */}
       {showForm && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <form
