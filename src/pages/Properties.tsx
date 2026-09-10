@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import axios from 'axios';
 import { PropertyMediaGallery } from '../components/PropertyMediaGallery';
 import {
   Building2, Save, X, MapPin, Home, Banknote, Ruler,
@@ -110,6 +111,27 @@ export default function Properties() {
   const [filterType, setFilterType] = useState<PropertyType | ''>('');
   const [filterTx, setFilterTx] = useState<TransactionType | ''>('');
   const [filterStatus, setFilterStatus] = useState<PropertyStatus | ''>('');
+  const [primaryThumbs, setPrimaryThumbs] = useState<Record<number, string>>({});
+
+  useEffect(() => {
+    axios.get('/api/propertyMedia')
+      .then(({ data }) => {
+        const map: Record<number, string> = {};
+        const list = Array.isArray(data) ? data : [];
+        const byProp: Record<number, any[]> = {};
+        for (const m of list) {
+          if (m.type && m.type !== 'image') continue;
+          if (!m.propertyId || !m.url) continue;
+          (byProp[m.propertyId] ||= []).push(m);
+        }
+        for (const [pid, arr] of Object.entries(byProp)) {
+          const sorted = arr.sort((a, b) => (b.isPrimary ? 1 : 0) - (a.isPrimary ? 1 : 0) || (a.sortOrder || 0) - (b.sortOrder || 0));
+          if (sorted[0]) map[Number(pid)] = sorted[0].url;
+        }
+        setPrimaryThumbs(map);
+      })
+      .catch(() => {});
+  }, []);
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -224,6 +246,15 @@ export default function Properties() {
               key={p.id}
               className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition overflow-hidden flex flex-col"
             >
+              <div className="aspect-[16/10] bg-slate-100 relative overflow-hidden">
+                {primaryThumbs[p.id!] ? (
+                  <img src={primaryThumbs[p.id!]} alt={p.title} className="w-full h-full object-cover" loading="lazy" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-slate-300">
+                    <Building2 size={40} />
+                  </div>
+                )}
+              </div>
               <div className="p-4 flex-1 space-y-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
@@ -348,15 +379,32 @@ function PropertyForm({
         listedAt: form.listedAt || Date.now(),
       };
 
+      let savedId: number;
       if (form.id) {
         await db.properties.put(payload);
+        savedId = form.id;
         toast.success('ملک با موفقیت ویرایش شد');
-        onSaved(form.id);
       } else {
-        const id = await db.properties.add(payload);
+        savedId = await db.properties.add(payload);
         toast.success('ملک با موفقیت ثبت شد');
-        onSaved(id);
       }
+
+      try {
+        const { data } = await axios.post(`/api/matching/auto-match/${savedId}`, {
+          minScore: 50,
+          markMatchedScore: 70,
+        });
+        if (data?.count > 0) {
+          toast.success(
+            `${data.count} درخواست مشابه پیدا شد${data.markedMatched ? ` · ${data.markedMatched} مورد مچ‌شده` : ''}`,
+            { duration: 5000 },
+          );
+        }
+      } catch {
+        /* مچ اختیاری */
+      }
+
+      onSaved(savedId);
     } catch (err: any) {
       console.error(err);
       toast.error(err?.response?.data?.error || err?.response?.data?.message || 'خطا در ذخیره‌سازی ملک');
