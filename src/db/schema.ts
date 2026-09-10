@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm';
-import { integer, pgTable, serial, text, timestamp, bigint, boolean, jsonb } from 'drizzle-orm/pg-core';
+import { integer, pgTable, serial, text, timestamp, bigint, boolean, jsonb, real } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -132,3 +132,98 @@ export const auditLogs = pgTable('audit_logs', {
   after: jsonb('after'),
   createdAt: bigint('created_at', { mode: 'number' }),
 });
+
+// ========================
+// ماژول املاک (Properties)
+// ========================
+
+/** مناطق / محله‌ها */
+export const areas = pgTable('areas', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),           // نام محله یا منطقه
+  city: text('city'),                     // شهر
+  parentId: integer('parent_id'),         // برای ساختار سلسله‌مراتبی (اختیاری)
+  sortOrder: integer('sort_order').default(0),
+  createdAt: bigint('created_at', { mode: 'number' }),
+});
+
+/** جدول اصلی املاک */
+export const properties = pgTable('properties', {
+  id: serial('id').primaryKey(),
+
+  // شناسه و عنوان
+  code: text('code').notNull().unique(),  // کد اختصاصی ملک (مثلاً P-1403-001)
+  title: text('title').notNull(),
+
+  // نوع و وضعیت
+  propertyType: text('property_type').notNull(),       // apartment | villa | shop | land | office | warehouse | other
+  transactionType: text('transaction_type').notNull(), // sale | rent | mortgage | rent_mortgage
+  status: text('status').notNull().default('available'), // available | reserved | sold | rented | archived
+
+  // قیمت‌ها (به ریال ذخیره می‌شوند)
+  price: integer('price'),                // قیمت فروش
+  deposit: integer('deposit'),            // ودیعه / رهن
+  rent: integer('rent'),                  // اجاره ماهانه
+
+  // مشخصات فیزیکی
+  area: real('area'),                     // متراژ (متر مربع)
+  bedrooms: integer('bedrooms'),
+  bathrooms: integer('bathrooms'),
+  floor: integer('floor'),
+  totalFloors: integer('total_floors'),
+  yearBuilt: integer('year_built'),
+  parkingSpaces: integer('parking_spaces').default(0),
+
+  // موقعیت
+  address: text('address'),
+  areaId: integer('area_id'),             // لینک به جدول areas
+  latitude: real('latitude'),
+  longitude: real('longitude'),
+
+  // امکانات (آرایه‌ای از رشته‌ها: ["elevator", "parking", "storage", "balcony", ...])
+  features: jsonb('features').$type<string[]>(),
+
+  // توضیحات
+  description: text('description'),
+  notes: text('notes'),                   // یادداشت داخلی مشاور
+
+  // روابط
+  ownerId: integer('owner_id'),           // مالک (customers.id)
+  assignedAgentId: integer('assigned_agent_id'), // مشاور مسئول (users.id)
+
+  // تاریخ‌ها
+  listedAt: bigint('listed_at', { mode: 'number' }),   // تاریخ آگهی شدن
+  createdAt: bigint('created_at', { mode: 'number' }),
+  updatedAt: bigint('updated_at', { mode: 'number' }),
+});
+
+/** تصاویر ملک */
+export const propertyImages = pgTable('property_images', {
+  id: serial('id').primaryKey(),
+  propertyId: integer('property_id').notNull(),
+  url: text('url').notNull(),             // مسیر یا URL تصویر
+  caption: text('caption'),
+  isPrimary: boolean('is_primary').default(false),
+  sortOrder: integer('sort_order').default(0),
+  createdAt: bigint('created_at', { mode: 'number' }),
+});
+
+// Relations (برای استفاده آینده با Drizzle Query)
+export const propertiesRelations = relations(properties, ({ one, many }) => ({
+  owner: one(customers, {
+    fields: [properties.ownerId],
+    references: [customers.id],
+  }),
+  area: one(areas, {
+    fields: [properties.areaId],
+    references: [areas.id],
+  }),
+  images: many(propertyImages),
+}));
+
+export const propertyImagesRelations = relations(propertyImages, ({ one }) => ({
+  property: one(properties, {
+    fields: [propertyImages.propertyId],
+    references: [properties.id],
+  }),
+}));
