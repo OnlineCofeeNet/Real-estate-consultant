@@ -9,7 +9,7 @@ import {
   propertyShares,
   settings,
 } from '../db/schema.ts';
-import { rankMatches, buildPublicPropertyMessage } from '../services/matching.ts';
+import { rankMatches, buildPublicPropertyMessage, scorePropertyAgainstRequest } from '../services/matching.ts';
 import type { Property, PropertyRequest } from '../types.ts';
 
 const router = Router();
@@ -160,6 +160,62 @@ router.get('/properties/:propertyId/matches', async (req, res) => {
 
     res.json({ property, matches: results });
   } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * مچ خودکار پس از ثبت/به‌روزرسانی فایل:
+ * درخواست‌های باز را با این فایل امتیاز می‌دهد
+ * و درخواست‌های با امتیاز ≥ markMatchedScore را به matched تغییر می‌دهد
+ */
+router.post('/auto-match/:propertyId', async (req, res) => {
+  try {
+    const propertyId = parseInt(req.params.propertyId, 10);
+    const minScore = parseInt(String(req.body?.minScore ?? req.query.minScore ?? '50'), 10);
+    const markMatchedScore = parseInt(String(req.body?.markMatchedScore ?? '70'), 10);
+
+    const propRows = await db.select().from(properties).where(eq(properties.id, propertyId));
+    const property = propRows[0] as unknown as Property;
+    if (!property) return res.status(404).json({ error: 'فایل یافت نشد' });
+
+    const reqs = await db.select().from(propertyRequests);
+    const openReqs = reqs.filter((r) => r.status === 'open' || r.status === 'matched');
+
+    const matches: any[] = [];
+    let marked = 0;
+
+    for (const r of openReqs) {
+      const mapped = mapRequest(r);
+      const result = scorePropertyAgainstRequest(property, mapped);
+      if (result.score < minScore || result.tier === 'none') continue;
+
+      matches.push({
+        request: mapped,
+        score: result.score,
+        tier: result.tier,
+        reasons: result.reasons,
+        breakdown: result.breakdown,
+      });
+
+      if (result.score >= markMatchedScore && r.status === 'open' && r.id != null) {
+        await db.update(propertyRequests)
+          .set({ status: 'matched', updatedAt: Date.now() })
+          .where(eq(propertyRequests.id, r.id));
+        marked += 1;
+      }
+    }
+
+    matches.sort((a, b) => b.score - a.score);
+
+    res.json({
+      propertyId,
+      count: matches.length,
+      markedMatched: marked,
+      matches,
+    });
+  } catch (e: any) {
+    console.error('auto-match error', e);
     res.status(500).json({ error: e.message });
   }
 });
