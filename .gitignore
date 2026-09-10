@@ -6,3 +6,7 @@ coverage/
 *.log
 .env*
 !.env.example
+bot-settings.json
+bot-users.json
+*.sqlite
+*.sqlite3
