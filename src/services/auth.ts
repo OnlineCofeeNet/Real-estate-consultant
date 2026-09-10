@@ -218,15 +218,24 @@ function establishSession(user: AuthUser): StoredSession {
   return session;
 }
 
-export function canAccess(role: UserRole, permission: 'settings' | 'finance' | 'contracts' | 'customers' | 'dashboard' | 'users'): boolean {
+export function canAccess(
+  role: UserRole,
+  permission: 'settings' | 'finance' | 'contracts' | 'customers' | 'dashboard' | 'users' | 'properties'
+): boolean {
   if (role === 'admin') return true;
   if (permission === 'users') return false;
   if (permission === 'settings') return false;
   if (permission === 'finance') return role === 'manager' || role === 'accountant';
-  if (permission === 'contracts' || permission === 'customers' || permission === 'dashboard') return true;
+  if (
+    permission === 'contracts' ||
+    permission === 'customers' ||
+    permission === 'properties' ||
+    permission === 'dashboard'
+  ) {
+    return true;
+  }
   return false;
 }
-
 
 export async function createUserByAdmin(username: string, password: string, email: string, phone: string, role: string, q1: string = '', a1: string = '', q2: string = '', a2: string = ''): Promise<void> {
   const normalizedUsername = username.trim().toLowerCase();
@@ -275,7 +284,7 @@ export async function registerUser(username: string, password: string, email: st
     username: normalizedUsername,
     passwordHash,
     salt,
-    role: 'pending', // default role
+    role: 'pending',
     securityQuestion1: q1,
     securityAnswer1Hash,
     securityQuestion2: q2,
@@ -295,7 +304,6 @@ export async function getUserSecurityQuestions(username: string) {
   }
   return { q1: user.securityQuestion1, q2: user.securityQuestion2 };
 }
-
 
 export async function recoverUsername(emailOrPhone: string): Promise<string[]> {
   const query = emailOrPhone.trim().toLowerCase();
