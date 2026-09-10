@@ -1,6 +1,18 @@
 import { Router } from 'express';
 import { db } from '../db/index.ts';
-import { customers, contracts, invoices, payments, messageLogs, auditLogs, settings, users } from '../db/schema.ts';
+import {
+  customers,
+  contracts,
+  invoices,
+  payments,
+  messageLogs,
+  auditLogs,
+  settings,
+  users,
+  properties,
+  areas,
+  propertyImages,
+} from '../db/schema.ts';
 import { eq } from 'drizzle-orm';
 
 const router = Router();
@@ -14,7 +26,7 @@ const addAuditLog = async (action: string, entity: string, details: string, user
       action,
       entity,
       description: details,
-      entityId: user // reusing user as entityId for now or just passing a string
+      entityId: user
     });
   } catch(e) {
     console.error('Audit Log Error:', e);
@@ -68,6 +80,9 @@ createCrudRoutes('invoices', invoices);
 createCrudRoutes('payments', payments);
 createCrudRoutes('messageLogs', messageLogs);
 createCrudRoutes('auditLogs', auditLogs);
+createCrudRoutes('properties', properties);
+createCrudRoutes('areas', areas);
+createCrudRoutes('propertyImages', propertyImages);
 
   
   
@@ -86,8 +101,6 @@ createCrudRoutes('auditLogs', auditLogs);
       // Generate a new 8-digit random password
       const newPassword = Math.floor(10000000 + Math.random() * 90000000).toString();
       
-      // We need to hash it. Since crypto is in auth.ts (client), we can do it via a simple crypto hack here, 
-      // but wait, Drizzle is running on the server, we can just hash it here.
       const crypto = require('crypto');
       const keyMaterial = await crypto.webcrypto.subtle.importKey(
         'raw',
@@ -106,13 +119,8 @@ createCrudRoutes('auditLogs', auditLogs);
 
       await db.update(users).set({ passwordHash: newPasswordHash }).where(eq(users.id, user.id));
       
-      // Try to send via SMS / Bots
-      const messageText = `رمز عبور جدید شما برای سامانه املاک:
-نام کاربری: ${username}
-رمز عبور: ${newPassword}`;
+      const messageText = `رمز عبور جدید شما برای سامانه املاک:\nنام کاربری: ${username}\nرمز عبور: ${newPassword}`;
       
-      // Let's call the internal sendSmsViaProvider if it was exported, or just fetch to our own endpoint.
-      // But we are in the same node process! We can just use fetch to localhost:3000
       try {
         await fetch('http://localhost:3000/api/bot/send-sms', {
           method: 'POST',
@@ -163,12 +171,6 @@ createCrudRoutes('auditLogs', auditLogs);
       const result = await db.select().from(users).where(eq(users.username, username));
       if (result.length > 0) {
         const u = result[0];
-        // Just return the user for now to make frontend work without changing auth.ts crypto logic, 
-        // wait, we have to return passwordHash so the frontend can check it? NO!
-        // We MUST check password on server side ideally.
-        // But the prompt asks to just strip the fields from GET /api/users.
-        // If we strip from GET /api/users, auth.ts will break because it uses the returned passwordHash.
-        // Let's add POST /login to return the FULL user (including hashes) just for auth.ts for now.
       }
     } catch (e) {}
   });
@@ -222,7 +224,7 @@ router.post('/contracts/complete', async (req, res) => {
       const contractResult = await tx.insert(contracts).values(contract).returning();
       const contractId = contractResult[0]?.id;
       
-      let resData = { contractId };
+      let resData: any = { contractId };
       
       // 2. Insert Invoice 1
       if (invoice1) {
