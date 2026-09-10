@@ -1,9 +1,10 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { PropertyMediaGallery } from '../components/PropertyMediaGallery';
 import {
   Building2, Save, X, MapPin, Home, Banknote, Ruler,
-  Car, Hash, FileText, CheckSquare, Plus, Search, Pencil, Trash2, Filter
+  Car, Hash, FileText, CheckSquare, Plus, Search, Pencil, Trash2, Filter, ImagePlus
 } from 'lucide-react';
 import { db, useLiveQuery } from '../db/db';
 import type {
@@ -98,14 +99,13 @@ export default function Properties() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const editId = searchParams.get('id');
-  const mode = searchParams.get('mode'); // 'new' | null
+  const mode = searchParams.get('mode');
 
   const showForm = mode === 'new' || Boolean(editId);
 
   const properties = useLiveQuery(() => db.properties.toArray()) || [];
   const customers = useLiveQuery(() => db.customers.toArray()) || [];
 
-  // Filters
   const [q, setQ] = useState('');
   const [filterType, setFilterType] = useState<PropertyType | ''>('');
   const [filterTx, setFilterTx] = useState<TransactionType | ''>('');
@@ -156,7 +156,6 @@ export default function Properties() {
 
   return (
     <div className="space-y-5" dir="rtl">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
@@ -176,7 +175,6 @@ export default function Properties() {
         </button>
       </div>
 
-      {/* Filters */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
         <div className="flex items-center gap-2 mb-3 text-slate-600 text-sm font-medium">
           <Filter size={16} />
@@ -213,7 +211,6 @@ export default function Properties() {
         </div>
       </div>
 
-      {/* List */}
       {filtered.length === 0 ? (
         <div className="bg-white rounded-xl border border-dashed border-slate-300 p-12 text-center text-slate-500">
           <Building2 className="mx-auto mb-3 text-slate-300" size={40} />
@@ -235,33 +232,19 @@ export default function Properties() {
                   </div>
                   <StatusBadge status={p.status} />
                 </div>
-
                 <div className="flex flex-wrap gap-1.5 text-xs">
-                  <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                    {labelOf(PROPERTY_TYPES, p.propertyType)}
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
-                    {labelOf(TRANSACTION_TYPES, p.transactionType)}
-                  </span>
-                  {p.area != null && (
-                    <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
-                      {p.area} متر
-                    </span>
-                  )}
+                  <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{labelOf(PROPERTY_TYPES, p.propertyType)}</span>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">{labelOf(TRANSACTION_TYPES, p.transactionType)}</span>
+                  {p.area != null && <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">{p.area} متر</span>}
                 </div>
-
                 <div className="text-sm text-slate-600 space-y-1">
                   {p.transactionType === 'sale' && p.price != null && (
                     <div>قیمت: <strong className="text-slate-800">{formatPrice(p.price)}</strong> ریال</div>
                   )}
                   {(p.transactionType === 'rent' || p.transactionType === 'rent_mortgage' || p.transactionType === 'mortgage') && (
                     <>
-                      {p.deposit != null && (
-                        <div>ودیعه: <strong className="text-slate-800">{formatPrice(p.deposit)}</strong></div>
-                      )}
-                      {p.rent != null && (
-                        <div>اجاره: <strong className="text-slate-800">{formatPrice(p.rent)}</strong></div>
-                      )}
+                      {p.deposit != null && <div>ودیعه: <strong className="text-slate-800">{formatPrice(p.deposit)}</strong></div>}
+                      {p.rent != null && <div>اجاره: <strong className="text-slate-800">{formatPrice(p.rent)}</strong></div>}
                     </>
                   )}
                   {p.address && (
@@ -272,20 +255,11 @@ export default function Properties() {
                   )}
                 </div>
               </div>
-
               <div className="px-4 py-3 border-t border-slate-100 flex gap-2 bg-slate-50/50">
-                <button
-                  onClick={() => openEdit(p.id!)}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition"
-                >
-                  <Pencil size={14} />
-                  ویرایش
+                <button onClick={() => openEdit(p.id!)} className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition">
+                  <Pencil size={14} /> ویرایش
                 </button>
-                <button
-                  onClick={() => handleDelete(p)}
-                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm text-rose-600 hover:bg-rose-50 transition"
-                  title="حذف"
-                >
+                <button onClick={() => handleDelete(p)} className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm text-rose-600 hover:bg-rose-50 transition" title="حذف">
                   <Trash2 size={14} />
                 </button>
               </div>
@@ -295,26 +269,9 @@ export default function Properties() {
       )}
 
       <style>{`
-        .input {
-          width: 100%;
-          padding: 0.55rem 0.75rem;
-          border: 1px solid #e2e8f0;
-          border-radius: 0.5rem;
-          background: white;
-          font-size: 0.9rem;
-          outline: none;
-          transition: border-color 0.15s;
-        }
-        .input:focus {
-          border-color: #10b981;
-          box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
-        }
-        .line-clamp-2 {
-          display: -webkit-box;
-          -webkit-line-clamp: 2;
-          -webkit-box-orient: vertical;
-          overflow: hidden;
-        }
+        .input { width: 100%; padding: 0.55rem 0.75rem; border: 1px solid #e2e8f0; border-radius: 0.5rem; background: white; font-size: 0.9rem; outline: none; }
+        .input:focus { border-color: #10b981; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12); }
+        .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
       `}</style>
     </div>
   );
@@ -336,9 +293,6 @@ function StatusBadge({ status }: { status?: PropertyStatus }) {
   );
 }
 
-// =====================
-// فرم ثبت / ویرایش
-// =====================
 function PropertyForm({
   editId,
   customers,
@@ -431,8 +385,7 @@ function PropertyForm({
         </div>
         <div className="flex gap-2">
           <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition flex items-center gap-2">
-            <X size={16} />
-            بازگشت به لیست
+            <X size={16} /> بازگشت به لیست
           </button>
           <button type="submit" form="property-form" disabled={saving} className="px-5 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition flex items-center gap-2 disabled:opacity-60">
             <Save size={16} />
@@ -542,6 +495,16 @@ function PropertyForm({
           </div>
         </Section>
 
+        {form.id ? (
+          <Section title="عکس و فیلم واحد" icon={<ImagePlus size={18} />}>
+            <PropertyMediaGallery propertyId={form.id} />
+          </Section>
+        ) : (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl px-4 py-3">
+            پس از ثبت اولیه ملک، می‌توانید عکس و فیلم واحد را بارگذاری کنید.
+          </div>
+        )}
+
         <Section title="مالک و توضیحات" icon={<FileText size={18} />}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Field label="مالک (از لیست مشتریان)">
@@ -567,20 +530,8 @@ function PropertyForm({
       </form>
 
       <style>{`
-        .input {
-          width: 100%;
-          padding: 0.55rem 0.75rem;
-          border: 1px solid #e2e8f0;
-          border-radius: 0.5rem;
-          background: white;
-          font-size: 0.9rem;
-          outline: none;
-          transition: border-color 0.15s;
-        }
-        .input:focus {
-          border-color: #10b981;
-          box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
-        }
+        .input { width: 100%; padding: 0.55rem 0.75rem; border: 1px solid #e2e8f0; border-radius: 0.5rem; background: white; font-size: 0.9rem; outline: none; }
+        .input:focus { border-color: #10b981; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12); }
       `}</style>
     </div>
   );
