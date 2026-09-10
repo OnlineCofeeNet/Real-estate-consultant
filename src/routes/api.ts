@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import mediaRouter from './media.ts';
 import { db } from '../db/index.ts';
 import {
   customers,
@@ -12,12 +13,11 @@ import {
   properties,
   areas,
   propertyImages,
+  propertyMedia,
 } from '../db/schema.ts';
 import { eq } from 'drizzle-orm';
 
 const router = Router();
-
-// Generic helper
 
 const addAuditLog = async (action: string, entity: string, details: string, user: string = 'System') => {
   try {
@@ -83,101 +83,86 @@ createCrudRoutes('auditLogs', auditLogs);
 createCrudRoutes('properties', properties);
 createCrudRoutes('areas', areas);
 createCrudRoutes('propertyImages', propertyImages);
+createCrudRoutes('propertyMedia', propertyMedia);
 
-  
-  
-  router.post('/users/recover-sms', async (req, res) => {
-    const { username, phone } = req.body;
-    try {
-      const result = await db.select().from(users).where(eq(users.username, username));
-      const user = result[0];
-      if (!user) {
-        return res.status(404).json({ error: 'کاربری با این مشخصات یافت نشد' });
-      }
-      if (user.phone !== phone) {
-        return res.status(400).json({ error: 'شماره موبایل وارد شده با اطلاعات حساب مطابقت ندارد' });
-      }
-
-      // Generate a new 8-digit random password
-      const newPassword = Math.floor(10000000 + Math.random() * 90000000).toString();
-      
-      const crypto = require('crypto');
-      const keyMaterial = await crypto.webcrypto.subtle.importKey(
-        'raw',
-        new TextEncoder().encode(newPassword),
-        'PBKDF2',
-        false,
-        ['deriveBits']
-      );
-      const saltBuffer = Buffer.from(user.salt, 'base64');
-      const bits = await crypto.webcrypto.subtle.deriveBits(
-        { name: 'PBKDF2', salt: saltBuffer, iterations: 100000, hash: 'SHA-256' },
-        keyMaterial,
-        256
-      );
-      const newPasswordHash = Buffer.from(bits).toString('base64');
-
-      await db.update(users).set({ passwordHash: newPasswordHash }).where(eq(users.id, user.id));
-      
-      const messageText = `رمز عبور جدید شما برای سامانه املاک:\nنام کاربری: ${username}\nرمز عبور: ${newPassword}`;
-      
-      try {
-        await fetch('http://localhost:3000/api/bot/send-sms', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone, message: messageText, customerName: user.username })
-        });
-      } catch (e) {
-         console.error('Failed to send SMS to bot API internally', e);
-      }
-
-      res.json({ success: true, message: 'رمز عبور جدید به شماره موبایل شما ارسال شد.' });
-    } catch (e: any) {
-      console.error(e);
-      res.status(500).json({ error: e.message });
+router.post('/users/recover-sms', async (req, res) => {
+  const { username, phone } = req.body;
+  try {
+    const result = await db.select().from(users).where(eq(users.username, username));
+    const user = result[0];
+    if (!user) {
+      return res.status(404).json({ error: 'کاربری با این مشخصات یافت نشد' });
     }
-  });
-
-  router.post('/users/login-fetch', async (req, res) => {
-    const { username } = req.body;
-    try {
-      const result = await db.select().from(users).where(eq(users.username, username));
-      res.json(result[0] || null);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    if (user.phone !== phone) {
+      return res.status(400).json({ error: 'شماره موبایل وارد شده با اطلاعات حساب مطابقت ندارد' });
     }
-  });
 
-  router.get('/users', async (req, res) => {
+    const newPassword = Math.floor(10000000 + Math.random() * 90000000).toString();
+    const crypto = require('crypto');
+    const keyMaterial = await crypto.webcrypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(newPassword),
+      'PBKDF2',
+      false,
+      ['deriveBits']
+    );
+    const saltBuffer = Buffer.from(user.salt, 'base64');
+    const bits = await crypto.webcrypto.subtle.deriveBits(
+      { name: 'PBKDF2', salt: saltBuffer, iterations: 100000, hash: 'SHA-256' },
+      keyMaterial,
+      256
+    );
+    const newPasswordHash = Buffer.from(bits).toString('base64');
+
+    await db.update(users).set({ passwordHash: newPasswordHash }).where(eq(users.id, user.id));
+
+    const messageText = `رمز عبور جدید شما برای سامانه املاک:\nنام کاربری: ${username}\nرمز عبور: ${newPassword}`;
+
     try {
-      const result = await db.select().from(users);
-      // Strip sensitive data
-      const safeUsers = result.map(u => ({
-        ...u,
-        passwordHash: undefined,
-        salt: undefined,
-        securityAnswer1Hash: undefined,
-        securityAnswer2Hash: undefined
-      }));
-      res.json(safeUsers);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      await fetch('http://localhost:3000/api/bot/send-sms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, message: messageText, customerName: user.username })
+      });
+    } catch (e) {
+      console.error('Failed to send SMS to bot API internally', e);
     }
-  });
 
-  router.post('/login', async (req, res) => {
-    const { username, password } = req.body;
-    try {
-      const result = await db.select().from(users).where(eq(users.username, username));
-      if (result.length > 0) {
-        const u = result[0];
-      }
-    } catch (e) {}
-  });
+    res.json({ success: true, message: 'رمز عبور جدید به شماره موبایل شما ارسال شد.' });
+  } catch (e: any) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/users/login-fetch', async (req, res) => {
+  const { username } = req.body;
+  try {
+    const result = await db.select().from(users).where(eq(users.username, username));
+    res.json(result[0] || null);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/users', async (req, res) => {
+  try {
+    const result = await db.select().from(users);
+    const safeUsers = result.map(u => ({
+      ...u,
+      passwordHash: undefined,
+      salt: undefined,
+      securityAnswer1Hash: undefined,
+      securityAnswer2Hash: undefined
+    }));
+    res.json(safeUsers);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 createCrudRoutes('users', users);
 
-// Settings has a specific id=1 structure
 router.get('/settings', async (req, res) => {
   try {
     const result = await db.select().from(settings).where(eq(settings.id, 1));
@@ -213,59 +198,51 @@ router.put('/settings/1', async (req, res) => {
   }
 });
 
-
-
 router.post('/contracts/complete', async (req, res) => {
   const { contract, invoice1, payment1, invoice2, payment2 } = req.body;
-  
+
   try {
     const result = await db.transaction(async (tx) => {
-      // 1. Insert contract
       const contractResult = await tx.insert(contracts).values(contract).returning();
       const contractId = contractResult[0]?.id;
-      
+
       let resData: any = { contractId };
-      
-      // 2. Insert Invoice 1
+
       if (invoice1) {
         invoice1.contractId = contractId;
         const inv1Result = await tx.insert(invoices).values(invoice1).returning();
         const inv1Id = inv1Result[0]?.id;
         resData.invoice1Id = inv1Id;
-        
-        // 3. Insert Payment 1
+
         if (payment1) {
           payment1.invoiceId = inv1Id;
           const pay1Result = await tx.insert(payments).values(payment1).returning();
           resData.payment1Id = pay1Result[0]?.id;
         }
       }
-      
-      // 4. Insert Invoice 2
+
       if (invoice2) {
         invoice2.contractId = contractId;
         const inv2Result = await tx.insert(invoices).values(invoice2).returning();
         const inv2Id = inv2Result[0]?.id;
         resData.invoice2Id = inv2Id;
-        
-        // 5. Insert Payment 2
+
         if (payment2) {
           payment2.invoiceId = inv2Id;
           const pay2Result = await tx.insert(payments).values(payment2).returning();
           resData.payment2Id = pay2Result[0]?.id;
         }
       }
-      
+
       return resData;
     });
-    
+
     res.json(result);
   } catch (e: any) {
     console.error('Transaction failed:', e);
     res.status(500).json({ error: e.message });
   }
 });
-
 
 router.delete('/contracts/:id/cascade', async (req, res) => {
   const contractId = parseInt(req.params.id);
@@ -281,5 +258,7 @@ router.delete('/contracts/:id/cascade', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+router.use('/media', mediaRouter);
 
 export default router;
