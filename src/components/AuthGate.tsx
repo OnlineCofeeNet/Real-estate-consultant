@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { UserProfileModal } from './UserProfileModal';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { LockKeyhole, ShieldCheck, KeyRound, UserPlus, HelpCircle } from 'lucide-react';
 import { accountCount, canAccess, createFirstAdmin, getSession, login, clearSession, registerUser, getUserSecurityQuestions, recoverPassword, recoverUsername } from '../services/auth';
@@ -44,6 +45,7 @@ export const UserMenu = () => {
     accountant: 'حسابدار',
   };
 
+  const [showProfile, setShowProfile] = useState(false);
   const logout = () => {
     clearSession();
     navigate('/');
@@ -51,10 +53,14 @@ export const UserMenu = () => {
   };
 
   return (
-    <div className="flex items-center gap-2 text-xs">
-      <span className="text-slate-400">{session.username} · {roleLabel[session.role]}</span>
-      <button onClick={logout} className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white">خروج</button>
-    </div>
+    <>
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-slate-400">{session.username} · {roleLabel[session.role]}</span>
+        <button onClick={() => setShowProfile(true)} className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700">پروفایل</button>
+        <button onClick={logout} className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white">خروج</button>
+      </div>
+      {showProfile && <UserProfileModal onClose={() => setShowProfile(false)} />}
+    </>
   );
 };
 
@@ -231,9 +237,12 @@ const RecoverUsername = ({ onBack }: { onBack: () => void }) => {
   );
 };
 
+
 const RecoverPassword = ({ onBack }: { onBack: () => void }) => {
   const [step, setStep] = useState(1);
+  const [method, setMethod] = useState<'none'|'sms'|'questions'>('none');
   const [username, setUsername] = useState('');
+  const [phone, setPhone] = useState('');
   const [q1, setQ1] = useState('');
   const [q2, setQ2] = useState('');
   const [a1, setA1] = useState('');
@@ -251,8 +260,25 @@ const RecoverPassword = ({ onBack }: { onBack: () => void }) => {
       setQ1(qs.q1);
       setQ2(qs.q2);
       setStep(2);
+      setMethod('questions');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'نام کاربری یافت نشد.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  
+  const submitSmsRecovery = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      const { default: axios } = await import('axios');
+      const res = await axios.post('/api/users/recover-sms', { username, phone });
+      toast.success(res.data.message || 'رمز عبور جدید پیامک شد');
+      onBack();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'خطا در ارسال پیامک');
     } finally {
       setBusy(false);
     }
@@ -274,13 +300,27 @@ const RecoverPassword = ({ onBack }: { onBack: () => void }) => {
   };
 
   return (
-    <AuthShell title="بازیابی رمز عبور" subtitle={step === 1 ? "نام کاربری خود را وارد کنید." : "به سوالات امنیتی پاسخ دهید."}>
+    <AuthShell title="بازیابی رمز عبور" subtitle={step === 1 ? "نام کاربری خود را وارد کنید." : (method === 'sms' ? "تایید شماره موبایل" : "به سوالات امنیتی پاسخ دهید.")}>
       {step === 1 ? (
-        <form onSubmit={fetchQuestions} className="space-y-4">
+        <form onSubmit={(e) => { e.preventDefault(); setStep(1.5); }} className="space-y-4">
           <Field label="نام کاربری" value={username} onChange={setUsername} required />
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
           <button disabled={busy} className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white py-3 font-bold">{busy ? 'در حال بررسی...' : 'ادامه'}</button>
           <button type="button" onClick={onBack} className="w-full mt-2 text-sm font-medium text-slate-500 hover:text-slate-800">بازگشت</button>
+        </form>
+      ) : step === 1.5 ? (
+        <div className="space-y-4">
+          <button onClick={() => { setStep(2); setMethod('sms'); }} className="w-full py-4 px-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-slate-700 font-bold transition-colors">بازیابی با پیامک / بات</button>
+          <button onClick={(e) => fetchQuestions(e as any)} className="w-full py-4 px-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-slate-700 font-bold transition-colors">بازیابی با سوالات امنیتی</button>
+          <button type="button" onClick={() => setStep(1)} className="w-full mt-2 text-sm font-medium text-slate-500 hover:text-slate-800">بازگشت</button>
+        </div>
+      ) : method === 'sms' ? (
+        <form onSubmit={submitSmsRecovery} className="space-y-4">
+           <div className="p-4 bg-slate-50 rounded-xl mb-4 text-sm font-medium text-slate-700 text-center">نام کاربری: {username}</div>
+           <Field label="شماره موبایل ثبت شده" value={phone} onChange={setPhone} required />
+           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
+           <button disabled={busy} className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white py-3 font-bold">{busy ? 'در حال ارسال پیامک...' : 'ارسال رمز جدید'}</button>
+           <button type="button" onClick={() => setStep(1.5)} className="w-full mt-2 text-sm font-medium text-slate-500 hover:text-slate-800">تغییر روش بازیابی</button>
         </form>
       ) : (
         <form onSubmit={submitRecovery} className="space-y-4">
@@ -290,12 +330,13 @@ const RecoverPassword = ({ onBack }: { onBack: () => void }) => {
           <Field label="رمز عبور جدید" value={newPassword} onChange={setNewPassword} type="password" required />
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
           <button disabled={busy} className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white py-3 font-bold">{busy ? 'در حال تغییر رمز...' : 'تغییر رمز عبور'}</button>
-          <button type="button" onClick={() => setStep(1)} className="w-full mt-2 text-sm font-medium text-slate-500 hover:text-slate-800">تغییر نام کاربری</button>
+          <button type="button" onClick={() => setStep(1.5)} className="w-full mt-2 text-sm font-medium text-slate-500 hover:text-slate-800">تغییر روش بازیابی</button>
         </form>
       )}
     </AuthShell>
   );
 };
+
 
 const Field = ({ label, value, onChange, type = 'text', autoComplete, required = false }: { label: string; value: string; onChange: (value: string) => void; type?: string; autoComplete?: string; required?: boolean; }) => (
   <label className="block text-sm font-medium text-slate-700">

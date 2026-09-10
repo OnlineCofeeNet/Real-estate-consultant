@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm';
-import { integer, pgTable, serial, text, timestamp, boolean, jsonb } from 'drizzle-orm/pg-core';
+import { integer, pgTable, serial, text, timestamp, bigint, boolean, jsonb } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -14,8 +14,8 @@ export const users = pgTable('users', {
   securityAnswer2Hash: text('security_answer2_hash'),
   phone: text('phone'),
   email: text('email'),
-  createdAt: timestamp('created_at').defaultNow(),
-  lastLoginAt: timestamp('last_login_at'),
+  createdAt: bigint('created_at', { mode: 'number' }),
+  lastLoginAt: bigint('last_login_at', { mode: 'number' }),
 });
 
 export const customers = pgTable('customers', {
@@ -40,7 +40,7 @@ export const customers = pgTable('customers', {
   telegramId: text('telegram_id'),
   rubikaId: text('rubika_id'),
   baleId: text('bale_id'),
-  createdAt: timestamp('created_at').defaultNow(),
+  createdAt: bigint('created_at', { mode: 'number' }),
 });
 
 export const contracts = pgTable('contracts', {
@@ -71,7 +71,7 @@ export const contracts = pgTable('contracts', {
   renewalDate: text('renewal_date'),
   renewedCount: integer('renewed_count'),
   status: text('status').notNull(),
-  createdAt: timestamp('created_at').defaultNow(),
+  createdAt: bigint('created_at', { mode: 'number' }),
 });
 
 export const invoices = pgTable('invoices', {
@@ -88,7 +88,7 @@ export const invoices = pgTable('invoices', {
   total: integer('total').notNull(),
   paidAmount: integer('paid_amount').notNull(),
   status: text('status').notNull(),
-  issuedAt: timestamp('issued_at').defaultNow(),
+  issuedAt: bigint('issued_at', { mode: 'number' }),
   dueDate: text('due_date'),
 });
 
@@ -102,8 +102,8 @@ export const payments = pgTable('payments', {
   reference: text('reference'),
   chequeDate: text('cheque_date'),
   note: text('note'),
-  paidAt: timestamp('paid_at').defaultNow(),
-  createdAt: timestamp('created_at').defaultNow(),
+  paidAt: bigint('paid_at', { mode: 'number' }),
+  createdAt: bigint('created_at', { mode: 'number' }),
 });
 
 export const settings = pgTable('settings', {
@@ -113,7 +113,7 @@ export const settings = pgTable('settings', {
 
 export const messageLogs = pgTable('message_logs', {
   id: serial('id').primaryKey(),
-  date: timestamp('date').defaultNow(),
+  date: bigint('date', { mode: 'number' }),
   customerName: text('customer_name').notNull(),
   phone: text('phone').notNull(),
   messenger: text('messenger').notNull(),
@@ -130,5 +130,5 @@ export const auditLogs = pgTable('audit_logs', {
   description: text('description').notNull(),
   before: jsonb('before'),
   after: jsonb('after'),
-  createdAt: timestamp('created_at').defaultNow(),
+  createdAt: bigint('created_at', { mode: 'number' }),
 });

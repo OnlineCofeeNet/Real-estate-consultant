@@ -8,5 +8,8 @@ coverage/
 !.env.example
 bot-settings.json
 bot-users.json
-*.sqlite
-*.sqlite3
+backup.json
+firebase-applet-config.json
+*.pem
+.env
+.env.*

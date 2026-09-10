@@ -494,6 +494,8 @@ const Contracts = () => {
   };
 
   const processPOS1 = () => {
+    alert("ارتباط با دستگاه کارتخوان نیازمند راه‌اندازی ماژول بانکی و دریافت کلید امنیتی است.");
+    return;
     toast.loading('در حال ارسال به دستگاه کارتخوان طرف اول...', { id: 'pos1' });
     setTimeout(() => {
       setContractData({ ...contractData, party1PosStatus: 'success', party1PosReceipt: Math.floor(Math.random() * 100000000).toString() });
@@ -502,6 +504,8 @@ const Contracts = () => {
   };
 
   const processPOS2 = () => {
+    alert("ارتباط با دستگاه کارتخوان نیازمند راه‌اندازی ماژول بانکی و دریافت کلید امنیتی است.");
+    return;
     toast.loading('در حال ارسال به دستگاه کارتخوان طرف دوم...', { id: 'pos2' });
     setTimeout(() => {
       setContractData({ ...contractData, party2PosStatus: 'success', party2PosReceipt: Math.floor(Math.random() * 100000000).toString() });
@@ -515,7 +519,7 @@ const Contracts = () => {
     if (window.confirm(`آیا از حذف ${selectedContracts.size} قرارداد اطمینان دارید؟ این عمل غیرقابل بازگشت است.`)) {
       await db.transaction('rw', db.contracts, async () => {
         for (const id of selectedContracts) {
-          await db.contracts.delete(id);
+          await (db as any).cascadeDeleteContract(id);
         }
       });
       toast.success('قراردادهای انتخاب شده با موفقیت حذف شدند');
@@ -544,7 +548,7 @@ const Contracts = () => {
 
   const handleDeleteContract = async (id: number) => {
     if (window.confirm('آیا از حذف این قرارداد و فاکتور اطمینان دارید؟')) {
-      await db.contracts.delete(id);
+      await (db as any).cascadeDeleteContract(id);
       toast.success('قرارداد با موفقیت حذف شد');
       if (contractData.id === id) {
         setShowInvoice(false);

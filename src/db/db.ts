@@ -155,6 +155,11 @@ class ApiDatabase {
   payments = new ApiTable<Payment>('/api/payments');
   users = new ApiTable<AuthUser>('/api/users');
 
+  async cascadeDeleteContract(id: number) {
+    const res = await axios.delete(`/api/contracts/${id}/cascade`);
+    return res.data;
+  }
+
   async completeContractTransaction(payload: any) {
     const res = await axios.post('/api/contracts/complete', payload);
     return res.data;
