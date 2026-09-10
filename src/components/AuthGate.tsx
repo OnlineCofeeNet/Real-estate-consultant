@@ -24,7 +24,7 @@ export const AuthGate = () => {
   return <Outlet />;
 };
 
-export const ProtectedRoute = ({ permission }: { permission: 'settings' | 'finance' | 'contracts' | 'customers' | 'dashboard' | 'users' }) => {
+export const ProtectedRoute = ({ permission }: { permission: 'settings' | 'finance' | 'contracts' | 'customers' | 'dashboard' | 'users' | 'properties' }) => {
   const session = getSession();
   const location = useLocation();
 
