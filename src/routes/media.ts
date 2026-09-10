@@ -5,36 +5,37 @@ import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { db } from '../db/index.ts';
 import { propertyMedia } from '../db/schema.ts';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import {
+  getLocalRoot,
+  localFilePath,
+  makeObjectKey,
+  saveBuffer,
+  saveLocalFile,
+  deleteByKeyOrUrl,
+  getQuotaBytes,
+  getStorageDriver,
+  publicUrlForKey,
+} from '../server/storage.ts';
+import { compressImage, generateVideoThumbnail } from '../server/mediaProcessing.ts';
 
 const router = Router();
 
-const propertyUploadsDir = path.join(process.cwd(), 'uploads', 'properties');
+const propertyUploadsDir = getLocalRoot();
 fs.mkdirSync(propertyUploadsDir, { recursive: true });
 
 const ALLOWED_IMAGE = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 const ALLOWED_VIDEO = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8MB
-const MAX_VIDEO_BYTES = 80 * 1024 * 1024; // 80MB
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 80 * 1024 * 1024;
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, propertyUploadsDir),
   filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase() || guessExt(file.mimetype);
+    const ext = path.extname(file.originalname).toLowerCase() || '.bin';
     cb(null, `${Date.now()}-${randomUUID()}${ext}`);
   },
 });
-
-function guessExt(mime: string): string {
-  if (mime === 'image/jpeg') return '.jpg';
-  if (mime === 'image/png') return '.png';
-  if (mime === 'image/webp') return '.webp';
-  if (mime === 'image/gif') return '.gif';
-  if (mime === 'video/mp4') return '.mp4';
-  if (mime === 'video/webm') return '.webm';
-  if (mime === 'video/quicktime') return '.mov';
-  return '';
-}
 
 function mediaKind(mime: string): 'image' | 'video' | null {
   if (ALLOWED_IMAGE.has(mime)) return 'image';
@@ -51,21 +52,46 @@ const upload = multer({
   },
 });
 
-/** سرو فایل آپلودشده */
-router.get('/file/:filename', (req, res) => {
-  const safe = path.basename(req.params.filename);
-  const fp = path.join(propertyUploadsDir, safe);
-  if (!fp.startsWith(propertyUploadsDir) || !fs.existsSync(fp)) {
-    return res.status(404).json({ error: 'فایل یافت نشد' });
+async function getUsedBytes(): Promise<number> {
+  try {
+    const result = await db
+      .select({ total: sql<number>`coalesce(sum(${propertyMedia.sizeBytes}), 0)` })
+      .from(propertyMedia);
+    return Number(result[0]?.total || 0);
+  } catch {
+    return 0;
   }
+}
+
+/** وضعیت فضای ذخیره‌سازی آژانس */
+router.get('/quota', async (_req, res) => {
+  try {
+    const used = await getUsedBytes();
+    const quota = getQuotaBytes();
+    res.json({
+      usedBytes: used,
+      quotaBytes: quota,
+      remainingBytes: Math.max(0, quota - used),
+      usedPercent: quota > 0 ? Math.min(100, Math.round((used / quota) * 1000) / 10) : 0,
+      driver: getStorageDriver(),
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** سرو فایل محلی (وقتی CDN/S3 نیست) */
+router.get('/file/:filename', (req, res) => {
+  const fp = localFilePath(req.params.filename);
+  if (!fp) return res.status(404).json({ error: 'فایل یافت نشد' });
   res.sendFile(fp);
 });
 
-/** آپلود چند فایل برای یک ملک */
+/** آپلود چند فایل */
 router.post('/upload', upload.array('files', 12), async (req, res) => {
+  const files = (req.files as Express.Multer.File[]) || [];
   try {
     const propertyId = parseInt(String(req.body.propertyId || ''), 10);
-    const files = (req.files as Express.Multer.File[]) || [];
 
     if (!propertyId || Number.isNaN(propertyId)) {
       for (const f of files) {
@@ -78,6 +104,22 @@ router.post('/upload', upload.array('files', 12), async (req, res) => {
       return res.status(400).json({ error: 'هیچ فایلی ارسال نشده است' });
     }
 
+    // بررسی سهمیه
+    const used = await getUsedBytes();
+    const quota = getQuotaBytes();
+    const incoming = files.reduce((s, f) => s + f.size, 0);
+    if (used + incoming > quota) {
+      for (const f of files) {
+        try { fs.unlinkSync(f.path); } catch {}
+      }
+      const remainMb = Math.max(0, (quota - used) / (1024 * 1024));
+      return res.status(413).json({
+        error: `ظرفیت ذخیره آژانس پر است. باقی‌مانده حدود ${remainMb.toFixed(1)} مگابایت`,
+        usedBytes: used,
+        quotaBytes: quota,
+      });
+    }
+
     const created: any[] = [];
 
     for (const file of files) {
@@ -86,6 +128,7 @@ router.post('/upload', upload.array('files', 12), async (req, res) => {
         try { fs.unlinkSync(file.path); } catch {}
         continue;
       }
+
       if (kind === 'image' && file.size > MAX_IMAGE_BYTES) {
         try { fs.unlinkSync(file.path); } catch {}
         return res.status(400).json({ error: `حجم عکس نباید بیشتر از ${MAX_IMAGE_BYTES / (1024 * 1024)}MB باشد` });
@@ -95,14 +138,53 @@ router.post('/upload', upload.array('files', 12), async (req, res) => {
         return res.status(400).json({ error: `حجم فیلم نباید بیشتر از ${MAX_VIDEO_BYTES / (1024 * 1024)}MB باشد` });
       }
 
-      const publicUrl = `/api/media/file/${file.filename}`;
+      let finalUrl = '';
+      let finalSize = file.size;
+      let finalMime = file.mimetype;
+      let width: number | undefined;
+      let height: number | undefined;
+      let thumbnailUrl: string | undefined;
+      let objectKey = '';
+
+      if (kind === 'image') {
+        const processed = await compressImage(file.path, file.mimetype);
+        objectKey = makeObjectKey(`${randomUUID()}${processed.ext}`);
+        const saved = await saveBuffer(objectKey, processed.buffer, processed.mimeType);
+        finalUrl = saved.url;
+        finalSize = saved.size;
+        finalMime = processed.mimeType;
+        width = processed.width;
+        height = processed.height;
+        try { fs.unlinkSync(file.path); } catch {}
+      } else {
+        // ویدیو: ذخیره مستقیم + thumbnail اختیاری
+        objectKey = makeObjectKey(file.originalname || `${randomUUID()}.mp4`);
+        const saved = await saveLocalFile(objectKey, file.path, file.mimetype);
+        finalUrl = saved.url;
+        finalSize = saved.size;
+
+        const thumb = await generateVideoThumbnail(file.path);
+        if (thumb) thumbnailUrl = thumb.url;
+
+        // اگر روی S3 ذخیره شد، فایل موقت محلی را پاک کن
+        if (getStorageDriver() === 's3') {
+          try { fs.unlinkSync(file.path); } catch {}
+        } else {
+          // برای local، نام فایل باید با آنچه در دیسک است هم‌خوان باشد
+          // saveLocalFile با driver=local از basename استفاده می‌کند
+        }
+      }
+
       const rows = await db.insert(propertyMedia).values({
         propertyId,
         type: kind,
-        url: publicUrl,
-        mimeType: file.mimetype,
-        sizeBytes: file.size,
+        url: finalUrl,
+        thumbnailUrl,
+        mimeType: finalMime,
+        sizeBytes: finalSize,
         originalName: file.originalname,
+        width,
+        height,
         isPrimary: false,
         sortOrder: 0,
         createdAt: Date.now(),
@@ -111,14 +193,26 @@ router.post('/upload', upload.array('files', 12), async (req, res) => {
       created.push(rows[0]);
     }
 
-    res.json({ success: true, items: created });
+    const usedAfter = await getUsedBytes();
+    res.json({
+      success: true,
+      items: created,
+      storage: {
+        usedBytes: usedAfter,
+        quotaBytes: quota,
+        remainingBytes: Math.max(0, quota - usedAfter),
+        driver: getStorageDriver(),
+      },
+    });
   } catch (e: any) {
     console.error('upload error', e);
+    for (const f of files) {
+      try { fs.unlinkSync(f.path); } catch {}
+    }
     res.status(500).json({ error: e.message || 'خطا در آپلود' });
   }
 });
 
-/** لیست رسانه یک ملک */
 router.get('/property/:propertyId', async (req, res) => {
   try {
     const propertyId = parseInt(req.params.propertyId, 10);
@@ -130,7 +224,6 @@ router.get('/property/:propertyId', async (req, res) => {
   }
 });
 
-/** تنظیم رسانه اصلی */
 router.patch('/:id/primary', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -151,7 +244,6 @@ router.patch('/:id/primary', async (req, res) => {
   }
 });
 
-/** حذف رسانه + فایل فیزیکی */
 router.delete('/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -161,11 +253,8 @@ router.delete('/:id', async (req, res) => {
 
     await db.delete(propertyMedia).where(eq(propertyMedia.id, id));
 
-    if (item.url && item.url.includes('/api/media/file/')) {
-      const filename = path.basename(item.url);
-      const diskPath = path.join(propertyUploadsDir, filename);
-      try { if (fs.existsSync(diskPath)) fs.unlinkSync(diskPath); } catch {}
-    }
+    if (item.url) await deleteByKeyOrUrl(item.url);
+    if (item.thumbnailUrl) await deleteByKeyOrUrl(item.thumbnailUrl);
 
     res.json({ success: true });
   } catch (e: any) {
