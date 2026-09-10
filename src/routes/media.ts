@@ -51,19 +51,29 @@ const upload = multer({
   },
 });
 
+/** سرو فایل آپلودشده */
+router.get('/file/:filename', (req, res) => {
+  const safe = path.basename(req.params.filename);
+  const fp = path.join(propertyUploadsDir, safe);
+  if (!fp.startsWith(propertyUploadsDir) || !fs.existsSync(fp)) {
+    return res.status(404).json({ error: 'فایل یافت نشد' });
+  }
+  res.sendFile(fp);
+});
+
 /** آپلود چند فایل برای یک ملک */
 router.post('/upload', upload.array('files', 12), async (req, res) => {
   try {
     const propertyId = parseInt(String(req.body.propertyId || ''), 10);
+    const files = (req.files as Express.Multer.File[]) || [];
+
     if (!propertyId || Number.isNaN(propertyId)) {
-      // پاک کردن فایل‌های آپلودشده اگر propertyId نامعتبر است
-      for (const f of req.files as Express.Multer.File[] || []) {
+      for (const f of files) {
         try { fs.unlinkSync(f.path); } catch {}
       }
       return res.status(400).json({ error: 'propertyId معتبر الزامی است' });
     }
 
-    const files = (req.files as Express.Multer.File[]) || [];
     if (files.length === 0) {
       return res.status(400).json({ error: 'هیچ فایلی ارسال نشده است' });
     }
@@ -85,7 +95,7 @@ router.post('/upload', upload.array('files', 12), async (req, res) => {
         return res.status(400).json({ error: `حجم فیلم نباید بیشتر از ${MAX_VIDEO_BYTES / (1024 * 1024)}MB باشد` });
       }
 
-      const publicUrl = `/uploads/properties/${file.filename}`;
+      const publicUrl = `/api/media/file/${file.filename}`;
       const rows = await db.insert(propertyMedia).values({
         propertyId,
         type: kind,
@@ -113,14 +123,14 @@ router.get('/property/:propertyId', async (req, res) => {
   try {
     const propertyId = parseInt(req.params.propertyId, 10);
     const rows = await db.select().from(propertyMedia).where(eq(propertyMedia.propertyId, propertyId));
-    rows.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || (a.id! - b.id!));
+    rows.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || ((a.id ?? 0) - (b.id ?? 0)));
     res.json(rows);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });
 
-/** تنظیم تصویر/فیلم اصلی */
+/** تنظیم رسانه اصلی */
 router.patch('/:id/primary', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -128,10 +138,9 @@ router.patch('/:id/primary', async (req, res) => {
     const item = rows[0];
     if (!item) return res.status(404).json({ error: 'یافت نشد' });
 
-    // همه را غیر اصلی کن
     const all = await db.select().from(propertyMedia).where(eq(propertyMedia.propertyId, item.propertyId));
     for (const m of all) {
-      if (m.isPrimary) {
+      if (m.isPrimary && m.id !== id) {
         await db.update(propertyMedia).set({ isPrimary: false }).where(eq(propertyMedia.id, m.id));
       }
     }
@@ -152,8 +161,9 @@ router.delete('/:id', async (req, res) => {
 
     await db.delete(propertyMedia).where(eq(propertyMedia.id, id));
 
-    if (item.url && item.url.startsWith('/uploads/')) {
-      const diskPath = path.join(process.cwd(), item.url.replace(/^\//, ''));
+    if (item.url && item.url.includes('/api/media/file/')) {
+      const filename = path.basename(item.url);
+      const diskPath = path.join(propertyUploadsDir, filename);
       try { if (fs.existsSync(diskPath)) fs.unlinkSync(diskPath); } catch {}
     }
 
