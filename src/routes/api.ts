@@ -5,59 +5,121 @@ import { eq } from 'drizzle-orm';
 
 const router = Router();
 
-// Generic helper
+type TableSchema = typeof customers | typeof contracts | typeof invoices | typeof payments | typeof messageLogs | typeof auditLogs | typeof users;
 
-const addAuditLog = async (action: string, entity: string, details: string, user: string = 'System') => {
+type AuditInput = {
+  action: string;
+  entity: string;
+  entityId?: string | number;
+  description: string;
+  before?: unknown;
+  after?: unknown;
+};
+
+const safeError = (error: unknown) => {
+  console.error(error);
+  return { error: 'خطای داخلی سرور رخ داد.' };
+};
+
+const addAuditLog = async ({ action, entity, entityId, description, before, after }: AuditInput) => {
   try {
     await db.insert(auditLogs).values({
-      date: Date.now(),
       action,
       entity,
-      user,
-      details
+      entityId: entityId == null ? undefined : String(entityId),
+      description,
+      before,
+      after,
     });
-  } catch(e) {
-    console.error('Audit Log Error:', e);
+  } catch (error) {
+    // Audit failures must never turn a successful business operation into a 500.
+    console.error('Audit Log Error:', error);
   }
 };
 
-const createCrudRoutes = (tableName: string, tableSchema: any) => {
-  router.get(`/${tableName}`, async (req, res) => {
+const parseId = (raw: string): number | null => {
+  if (!/^\d+$/.test(raw)) return null;
+  const id = Number(raw);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+};
+
+const createCrudRoutes = (tableName: string, tableSchema: TableSchema) => {
+  router.get(`/${tableName}`, async (_req, res) => {
     try {
       const result = await db.select().from(tableSchema);
       res.json(result);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      res.status(500).json(safeError(error));
     }
   });
 
   router.post(`/${tableName}`, async (req, res) => {
     try {
+      if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+        return res.status(400).json({ error: 'بدنه درخواست نامعتبر است.' });
+      }
+
       const result = await db.insert(tableSchema).values(req.body).returning();
-      await addAuditLog('create', tableName, `Created record ID: ${result[0]?.id}`);
-      res.json(result[0]?.id);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      const created = result[0];
+      await addAuditLog({
+        action: 'create',
+        entity: tableName,
+        entityId: created?.id,
+        description: `Created record ID: ${created?.id ?? 'unknown'}`,
+        after: created,
+      });
+      return res.status(201).json(created?.id);
+    } catch (error) {
+      return res.status(500).json(safeError(error));
     }
   });
 
   router.put(`/${tableName}/:id`, async (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'شناسه نامعتبر است.' });
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ error: 'بدنه درخواست نامعتبر است.' });
+    }
+
     try {
-      await db.update(tableSchema).set(req.body).where(eq(tableSchema.id, parseInt(req.params.id)));
-      await addAuditLog('update', tableName, `Updated record ID: ${req.params.id}`);
-      res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      const beforeResult = await db.select().from(tableSchema).where(eq(tableSchema.id, id));
+      if (!beforeResult[0]) return res.status(404).json({ error: 'رکورد پیدا نشد.' });
+
+      const result = await db.update(tableSchema).set(req.body).where(eq(tableSchema.id, id)).returning();
+      const after = result[0];
+      await addAuditLog({
+        action: 'update',
+        entity: tableName,
+        entityId: id,
+        description: `Updated record ID: ${id}`,
+        before: beforeResult[0],
+        after,
+      });
+      return res.json({ success: true });
+    } catch (error) {
+      return res.status(500).json(safeError(error));
     }
   });
 
   router.delete(`/${tableName}/:id`, async (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'شناسه نامعتبر است.' });
+
     try {
-      await db.delete(tableSchema).where(eq(tableSchema.id, parseInt(req.params.id)));
-      await addAuditLog('delete', tableName, `Deleted record ID: ${req.params.id}`);
-      res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      const beforeResult = await db.select().from(tableSchema).where(eq(tableSchema.id, id));
+      if (!beforeResult[0]) return res.status(404).json({ error: 'رکورد پیدا نشد.' });
+
+      await db.delete(tableSchema).where(eq(tableSchema.id, id));
+      await addAuditLog({
+        action: 'delete',
+        entity: tableName,
+        entityId: id,
+        description: `Deleted record ID: ${id}`,
+        before: beforeResult[0],
+      });
+      return res.json({ success: true });
+    } catch (error) {
+      return res.status(500).json(safeError(error));
     }
   });
 };
@@ -70,92 +132,117 @@ createCrudRoutes('messageLogs', messageLogs);
 createCrudRoutes('auditLogs', auditLogs);
 createCrudRoutes('users', users);
 
-// Settings has a specific id=1 structure
-router.get('/settings', async (req, res) => {
+router.get('/settings', async (_req, res) => {
   try {
     const result = await db.select().from(settings).where(eq(settings.id, 1));
-    if (result.length > 0) {
-      res.json(result[0].data);
-    } else {
-      res.json(null);
-    }
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    return res.json(result[0]?.data ?? null);
+  } catch (error) {
+    return res.status(500).json(safeError(error));
   }
 });
 
 router.post('/settings', async (req, res) => {
   try {
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ error: 'تنظیمات نامعتبر است.' });
+    }
     const result = await db.insert(settings).values({ id: 1, data: req.body })
       .onConflictDoUpdate({ target: settings.id, set: { data: req.body } })
       .returning();
-    await addAuditLog('create/update', 'settings', 'Updated global settings');
-    res.json(result[0]?.id);
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    await addAuditLog({ action: 'create/update', entity: 'settings', entityId: 1, description: 'Updated global settings', after: req.body });
+    return res.json(result[0]?.id);
+  } catch (error) {
+    return res.status(500).json(safeError(error));
   }
 });
 
 router.put('/settings/1', async (req, res) => {
   try {
-    await db.update(settings).set({ data: req.body }).where(eq(settings.id, 1));
-    await addAuditLog('update', 'settings', 'Updated global settings');
-    res.json({ success: true });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ error: 'تنظیمات نامعتبر است.' });
+    }
+    const before = await db.select().from(settings).where(eq(settings.id, 1));
+    const result = await db.update(settings).set({ data: req.body }).where(eq(settings.id, 1)).returning();
+    if (!result[0]) return res.status(404).json({ error: 'تنظیمات پیدا نشد.' });
+    await addAuditLog({ action: 'update', entity: 'settings', entityId: 1, description: 'Updated global settings', before: before[0]?.data, after: req.body });
+    return res.json({ success: true });
+  } catch (error) {
+    return res.status(500).json(safeError(error));
   }
 });
 
-
-
 router.post('/contracts/complete', async (req, res) => {
-  const { contract, invoice1, payment1, invoice2, payment2 } = req.body;
-  
+  const { contract, invoice1, payment1, invoice2, payment2 } = req.body ?? {};
+
+  if (!contract || typeof contract !== 'object') {
+    return res.status(400).json({ error: 'اطلاعات قرارداد الزامی است.' });
+  }
+  if (!contract.contractNumber || typeof contract.contractNumber !== 'string' || !contract.contractNumber.trim()) {
+    return res.status(400).json({ error: 'شماره قرارداد الزامی است.' });
+  }
+
   try {
     const result = await db.transaction(async (tx) => {
-      // 1. Insert contract
-      const contractResult = await tx.insert(contracts).values(contract).returning();
-      const contractId = contractResult[0]?.id;
-      
-      let resData = { contractId };
-      
-      // 2. Insert Invoice 1
-      if (invoice1) {
-        invoice1.contractId = contractId;
-        const inv1Result = await tx.insert(invoices).values(invoice1).returning();
-        const inv1Id = inv1Result[0]?.id;
-        resData.invoice1Id = inv1Id;
-        
-        // 3. Insert Payment 1
-        if (payment1) {
-          payment1.invoiceId = inv1Id;
-          const pay1Result = await tx.insert(payments).values(payment1).returning();
-          resData.payment1Id = pay1Result[0]?.id;
-        }
+      // Prevent accidental duplicate contract numbers when two clients submit concurrently.
+      const existing = await tx.select({ id: contracts.id })
+        .from(contracts)
+        .where(eq(contracts.contractNumber, contract.contractNumber.trim()));
+      if (existing.length > 0) {
+        const duplicateError = new Error('DUPLICATE_CONTRACT_NUMBER');
+        throw duplicateError;
       }
-      
-      // 4. Insert Invoice 2
-      if (invoice2) {
-        invoice2.contractId = contractId;
-        const inv2Result = await tx.insert(invoices).values(invoice2).returning();
-        const inv2Id = inv2Result[0]?.id;
-        resData.invoice2Id = inv2Id;
-        
-        // 5. Insert Payment 2
-        if (payment2) {
-          payment2.invoiceId = inv2Id;
-          const pay2Result = await tx.insert(payments).values(payment2).returning();
-          resData.payment2Id = pay2Result[0]?.id;
+
+      const contractToInsert = { ...contract, contractNumber: contract.contractNumber.trim() };
+      const contractResult = await tx.insert(contracts).values(contractToInsert).returning();
+      const createdContract = contractResult[0];
+      if (!createdContract?.id) throw new Error('Contract was not created');
+      const contractId = createdContract.id;
+
+      const resultData: {
+        contractId: number;
+        invoice1Id?: number;
+        payment1Id?: number;
+        invoice2Id?: number;
+        payment2Id?: number;
+      } = { contractId };
+
+      const insertInvoiceAndPayment = async (invoice: any, payment: any, key: '1' | '2') => {
+        if (!invoice) return;
+        const invoiceToInsert = { ...invoice, contractId, contractNumber: contractToInsert.contractNumber };
+        const invoiceResult = await tx.insert(invoices).values(invoiceToInsert).returning();
+        const createdInvoice = invoiceResult[0];
+        if (!createdInvoice?.id) throw new Error(`Invoice ${key} was not created`);
+        resultData[`invoice${key}Id`] = createdInvoice.id;
+
+        if (payment) {
+          const paymentToInsert = { ...payment, invoiceId: createdInvoice.id, contractId };
+          const paymentResult = await tx.insert(payments).values(paymentToInsert).returning();
+          const createdPayment = paymentResult[0];
+          if (!createdPayment?.id) throw new Error(`Payment ${key} was not created`);
+          resultData[`payment${key}Id`] = createdPayment.id;
         }
-      }
-      
-      return resData;
+      };
+
+      await insertInvoiceAndPayment(invoice1, payment1, '1');
+      await insertInvoiceAndPayment(invoice2, payment2, '2');
+
+      return resultData;
     });
-    
-    res.json(result);
-  } catch (e: any) {
-    console.error('Transaction failed:', e);
-    res.status(500).json({ error: e.message });
+
+    await addAuditLog({
+      action: 'create/complete',
+      entity: 'contracts',
+      entityId: result.contractId,
+      description: `Completed contract ${contract.contractNumber}`,
+      after: result,
+    });
+
+    return res.status(201).json(result);
+  } catch (error: any) {
+    if (error?.message === 'DUPLICATE_CONTRACT_NUMBER') {
+      return res.status(409).json({ error: 'شماره قرارداد قبلاً ثبت شده است.' });
+    }
+    return res.status(500).json(safeError(error));
   }
 });
 
