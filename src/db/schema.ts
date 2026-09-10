@@ -173,7 +173,6 @@ export const properties = pgTable('properties', {
   updatedAt: bigint('updated_at', { mode: 'number' }),
 });
 
-/** سازگاری با نسخه قبلی */
 export const propertyImages = pgTable('property_images', {
   id: serial('id').primaryKey(),
   propertyId: integer('property_id').notNull(),
@@ -184,11 +183,10 @@ export const propertyImages = pgTable('property_images', {
   createdAt: bigint('created_at', { mode: 'number' }),
 });
 
-/** رسانه ملک: عکس و فیلم */
 export const propertyMedia = pgTable('property_media', {
   id: serial('id').primaryKey(),
   propertyId: integer('property_id').notNull(),
-  type: text('type').notNull(), // image | video
+  type: text('type').notNull(),
   url: text('url').notNull(),
   thumbnailUrl: text('thumbnail_url'),
   mimeType: text('mime_type'),
@@ -196,10 +194,52 @@ export const propertyMedia = pgTable('property_media', {
   originalName: text('original_name'),
   width: integer('width'),
   height: integer('height'),
-  duration: integer('duration'), // seconds for video
+  duration: integer('duration'),
   caption: text('caption'),
   isPrimary: boolean('is_primary').default(false),
   sortOrder: integer('sort_order').default(0),
+  createdAt: bigint('created_at', { mode: 'number' }),
+});
+
+/** درخواست ملک مشتری */
+export const propertyRequests = pgTable('property_requests', {
+  id: serial('id').primaryKey(),
+  customerId: integer('customer_id').notNull(),
+  title: text('title'),
+  transactionType: text('transaction_type').notNull(),
+  propertyType: text('property_type'),
+  status: text('status').notNull().default('open'),
+  minPrice: integer('min_price'),
+  maxPrice: integer('max_price'),
+  minDeposit: integer('min_deposit'),
+  maxDeposit: integer('max_deposit'),
+  minRent: integer('min_rent'),
+  maxRent: integer('max_rent'),
+  minArea: real('min_area'),
+  maxArea: real('max_area'),
+  minBedrooms: integer('min_bedrooms'),
+  maxBedrooms: integer('max_bedrooms'),
+  areaId: integer('area_id'),
+  preferredAreas: jsonb('preferred_areas').$type<string[]>(),
+  features: jsonb('features').$type<string[]>(),
+  description: text('description'),
+  notes: text('notes'),
+  assignedAgentId: integer('assigned_agent_id'),
+  createdAt: bigint('created_at', { mode: 'number' }),
+  updatedAt: bigint('updated_at', { mode: 'number' }),
+  expiresAt: bigint('expires_at', { mode: 'number' }),
+});
+
+/** تاریخچه ارسال فایل به مشتری */
+export const propertyShares = pgTable('property_shares', {
+  id: serial('id').primaryKey(),
+  propertyId: integer('property_id').notNull(),
+  customerId: integer('customer_id').notNull(),
+  requestId: integer('request_id'),
+  channel: text('channel').notNull(),
+  message: text('message').notNull(),
+  status: text('status').notNull().default('pending'),
+  matchScore: integer('match_score'),
   createdAt: bigint('created_at', { mode: 'number' }),
 });
 
