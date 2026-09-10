@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Customer, Contract, Settings, MessageLog, AuditLog, Invoice, Payment, AuthUser } from '../types';
+import type { Customer, Contract, Settings, MessageLog, AuditLog, Invoice, Payment, AuthUser, Property, Area } from '../types';
 
 class ApiTable<T extends { id?: number }> {
   constructor(private route: string) {}
@@ -43,8 +43,6 @@ class ApiTable<T extends { id?: number }> {
   }
 
   async clear(): Promise<void> {
-    // We don't have a clear endpoint by default, maybe not needed or could loop.
-    // For now, implement loop or ignore for safety.
     const all = await this.toArray();
     for (const item of all) {
       if (item.id) await this.delete(item.id);
@@ -52,11 +50,9 @@ class ApiTable<T extends { id?: number }> {
   }
 
   async get(id: number): Promise<T | undefined> {
-    // For now, fetch all and find, or implement a specific API
     if (this.route === '/api/settings') {
       let res = await axios.get(this.route);
       if (!res.data) {
-        // Seed default settings
         const defaultSettings = {
           agencyName: 'مشاورین املاک من',
           slogan: 'بهترین انتخاب برای شما',
@@ -154,6 +150,8 @@ class ApiDatabase {
   invoices = new ApiTable<Invoice>('/api/invoices');
   payments = new ApiTable<Payment>('/api/payments');
   users = new ApiTable<AuthUser>('/api/users');
+  properties = new ApiTable<Property>('/api/properties');
+  areas = new ApiTable<Area>('/api/areas');
 
   async cascadeDeleteContract(id: number) {
     const res = await axios.delete(`/api/contracts/${id}/cascade`);
@@ -181,7 +179,6 @@ export const db = new ApiDatabase();
 // Use an event emitter to re-render useLiveQuery hooks
 const listeners = new Set<() => void>();
 
-// Optionally, wrap the API methods to trigger re-renders on writes
 const originalAdd = ApiTable.prototype.add;
 ApiTable.prototype.add = async function (this: any, item: any) {
   const res = await originalAdd.call(this, item);
@@ -210,7 +207,6 @@ ApiTable.prototype.delete = async function (this: any, id: number) {
   return res;
 };
 
-// Polyfill useLiveQuery
 import { useState, useEffect } from 'react';
 
 export function useLiveQuery<T>(querier: () => Promise<T>, deps: any[] = []): T | undefined {
