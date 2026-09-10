@@ -13,3 +13,4 @@ firebase-applet-config.json
 *.pem
 .env
 .env.*
+uploads/
