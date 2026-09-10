@@ -53,7 +53,6 @@ async function getAgencySettings(): Promise<any> {
   }
 }
 
-// ---------- CRUD درخواست ----------
 router.get('/requests', async (_req, res) => {
   try {
     const rows = await db.select().from(propertyRequests);
@@ -104,11 +103,10 @@ router.delete('/requests/:id', async (req, res) => {
   }
 });
 
-// ---------- مچ کردن ----------
 router.get('/requests/:id/matches', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const minScore = parseInt(String(req.query.minScore || '40'), 10);
+    const minScore = parseInt(String(req.query.minScore || '35'), 10);
     const reqRows = await db.select().from(propertyRequests).where(eq(propertyRequests.id, id));
     const request = reqRows[0];
     if (!request) return res.status(404).json({ error: 'درخواست یافت نشد' });
@@ -122,7 +120,9 @@ router.get('/requests/:id/matches', async (req, res) => {
       matches: matches.map((m) => ({
         property: m.property,
         score: m.score,
+        tier: m.tier,
         reasons: m.reasons,
+        breakdown: m.breakdown,
       })),
     });
   } catch (e: any) {
@@ -130,11 +130,10 @@ router.get('/requests/:id/matches', async (req, res) => {
   }
 });
 
-/** مچ معکوس: برای یک فایل، کدام درخواست‌ها مناسب‌اند */
 router.get('/properties/:propertyId/matches', async (req, res) => {
   try {
     const propertyId = parseInt(req.params.propertyId, 10);
-    const minScore = parseInt(String(req.query.minScore || '40'), 10);
+    const minScore = parseInt(String(req.query.minScore || '35'), 10);
     const propRows = await db.select().from(properties).where(eq(properties.id, propertyId));
     const property = propRows[0] as unknown as Property;
     if (!property) return res.status(404).json({ error: 'فایل یافت نشد' });
@@ -147,7 +146,13 @@ router.get('/properties/:propertyId/matches', async (req, res) => {
         const mapped = mapRequest(r);
         const ranked = rankMatches([property], mapped, minScore);
         return ranked[0]
-          ? { request: mapped, score: ranked[0].score, reasons: ranked[0].reasons }
+          ? {
+              request: mapped,
+              score: ranked[0].score,
+              tier: ranked[0].tier,
+              reasons: ranked[0].reasons,
+              breakdown: ranked[0].breakdown,
+            }
           : null;
       })
       .filter(Boolean)
@@ -159,7 +164,6 @@ router.get('/properties/:propertyId/matches', async (req, res) => {
   }
 });
 
-// ---------- ارسال امن فایل به مشتری (بدون تلفن مالک) ----------
 router.post('/share', async (req, res) => {
   try {
     const { propertyId, customerId, requestId, preferredChannel } = req.body || {};
@@ -189,7 +193,6 @@ router.post('/share', async (req, res) => {
       botLink,
     });
 
-    // تشخیص کانال: اول بات، وگرنه پیامک
     type Channel = 'telegram' | 'bale' | 'rubika' | 'sms';
     let channel: Channel = 'sms';
     let chatId: string | undefined;
@@ -218,7 +221,6 @@ router.post('/share', async (req, res) => {
           ? `${message}\n\nبرای دریافت فایل‌های بیشتر در ربات عضو شوید:\n${botLink}`
           : message;
 
-        // استفاده از endpoint موجود پیامک در سرور
         await axios.post(
           'http://127.0.0.1:3000/api/bot/send-sms',
           {
@@ -246,7 +248,6 @@ router.post('/share', async (req, res) => {
     } catch (err: any) {
       errorDetail = err?.response?.data?.error || err?.message || 'ارسال ناموفق';
 
-      // اگر بات شکست خورد، fallback به SMS
       if (channel !== 'sms' && customer.phone) {
         try {
           const smsText = botLink
