@@ -18,6 +18,7 @@ import Finance from './pages/Finance';
 import Settings from './pages/Settings';
 import Help from './pages/Help';
 import Users from './pages/Users';
+import Properties from './pages/Properties';
 import { doAutoBackup, checkAndRestoreAutoBackup } from './utils/BackupManager';
 import { useAutoMessages } from './hooks/useAutoMessages';
 
@@ -81,6 +82,9 @@ export default function App() {
             </Route>
             <Route element={<ProtectedRoute permission="customers" />}>
               <Route path="customers" element={<Customers />} />
+            </Route>
+            <Route element={<ProtectedRoute permission="properties" />}>
+              <Route path="properties" element={<Properties />} />
             </Route>
             <Route element={<ProtectedRoute permission="settings" />}>
               <Route path="settings" element={<Settings />} />
