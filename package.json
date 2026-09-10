@@ -17,6 +17,7 @@
     "db:studio": "drizzle-kit studio --config=src/db/drizzle.config.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.758.0",
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
@@ -47,6 +48,7 @@
     "react-multi-date-picker": "^4.5.2",
     "react-router-dom": "^7.18.2",
     "recharts": "^3.10.1",
+    "sharp": "^0.33.5",
     "tailwind-merge": "^3.6.0",
     "uuid": "^14.0.2",
     "vite": "^6.2.3",
