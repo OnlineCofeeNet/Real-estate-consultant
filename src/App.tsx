@@ -19,6 +19,7 @@ import Settings from './pages/Settings';
 import Help from './pages/Help';
 import Users from './pages/Users';
 import Properties from './pages/Properties';
+import Matching from './pages/Matching';
 import { doAutoBackup, checkAndRestoreAutoBackup } from './utils/BackupManager';
 import { useAutoMessages } from './hooks/useAutoMessages';
 
@@ -85,6 +86,7 @@ export default function App() {
             </Route>
             <Route element={<ProtectedRoute permission="properties" />}>
               <Route path="properties" element={<Properties />} />
+              <Route path="matching" element={<Matching />} />
             </Route>
             <Route element={<ProtectedRoute permission="settings" />}>
               <Route path="settings" element={<Settings />} />
