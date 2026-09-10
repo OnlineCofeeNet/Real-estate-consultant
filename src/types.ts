@@ -197,7 +197,7 @@ export interface MessageLog {
 }
 
 export type AuditAction = 'create' | 'update' | 'delete' | 'restore' | 'export' | 'import' | 'payment';
-export type AuditEntity = 'customer' | 'contract' | 'settings' | 'invoice' | 'payment' | 'backup' | 'system';
+export type AuditEntity = 'customer' | 'contract' | 'settings' | 'invoice' | 'payment' | 'backup' | 'system' | 'property' | 'area';
 
 export interface AuditLog {
   id?: number;
@@ -208,4 +208,128 @@ export interface AuditLog {
   before?: unknown;
   after?: unknown;
   createdAt: number;
+}
+
+// ========================
+// ماژول املاک (Properties)
+// ========================
+
+/** نوع ملک */
+export type PropertyType =
+  | 'apartment'   // آپارتمان
+  | 'villa'       // ویلا / خانه ویلایی
+  | 'shop'        // مغازه / تجاری
+  | 'land'        // زمین
+  | 'office'      // دفتر کار / اداری
+  | 'warehouse'   // انبار / سوله
+  | 'other';
+
+/** نوع معامله */
+export type TransactionType =
+  | 'sale'          // فروش
+  | 'rent'          // اجاره
+  | 'mortgage'      // رهن کامل
+  | 'rent_mortgage'; // رهن و اجاره
+
+/** وضعیت ملک */
+export type PropertyStatus =
+  | 'available'   // موجود
+  | 'reserved'    // رزرو شده
+  | 'sold'        // فروخته شده
+  | 'rented'      // اجاره رفته
+  | 'archived';    // بایگانی
+
+/** امکانات رایج ملک */
+export type PropertyFeature =
+  | 'elevator'        // آسانسور
+  | 'parking'         // پارکینگ
+  | 'storage'         // انباری
+  | 'balcony'         // بالکن / تراس
+  | 'warehouse'       // انبار
+  | 'garden'          // حیاط / باغ
+  | 'pool'            // استخر
+  | 'sauna'           // سونا
+  | 'gym'             // باشگاه
+  | 'security'        // نگهبانی
+  | 'central_heating' // گرمایش مرکزی
+  | 'package'         // پکیج
+  | 'cooler'          // کولر
+  | 'furnished'       // مبله
+  | 'renovated'       // بازسازی شده
+  | 'corner'          // نبش
+  | 'master_room'     // اتاق مستر
+  | 'laundry';         // لاندری
+
+export interface Area {
+  id?: number;
+  name: string;
+  city?: string;
+  parentId?: number;
+  sortOrder?: number;
+  createdAt: number;
+}
+
+export interface PropertyImage {
+  id?: number;
+  propertyId: number;
+  url: string;
+  caption?: string;
+  isPrimary?: boolean;
+  sortOrder?: number;
+  createdAt: number;
+}
+
+export interface Property {
+  id?: number;
+
+  // شناسه و عنوان
+  code: string;
+  title: string;
+
+  // نوع و وضعیت
+  propertyType: PropertyType;
+  transactionType: TransactionType;
+  status: PropertyStatus;
+
+  // قیمت‌ها (ریال)
+  price?: number;
+  deposit?: number;
+  rent?: number;
+
+  // مشخصات فیزیکی
+  area?: number;              // متراژ
+  bedrooms?: number;
+  bathrooms?: number;
+  floor?: number;
+  totalFloors?: number;
+  yearBuilt?: number;
+  parkingSpaces?: number;
+
+  // موقعیت
+  address?: string;
+  areaId?: number;
+  latitude?: number;
+  longitude?: number;
+
+  // امکانات
+  features?: PropertyFeature[] | string[];
+
+  // توضیحات
+  description?: string;
+  notes?: string;
+
+  // روابط
+  ownerId?: number;
+  assignedAgentId?: number;
+
+  // تاریخ‌ها
+  listedAt?: number;
+  createdAt: number;
+  updatedAt?: number;
+
+  // فیلدهای کمکی برای UI (پر می‌شوند هنگام join)
+  owner?: Customer | null;
+  areaName?: string;
+  images?: PropertyImage[];
+  primaryImage?: string;
 }
