@@ -45,11 +45,11 @@ export function hasActiveSession(): boolean {
 export function getSession(): StoredSession | null { if (!hasActiveSession()) return null; try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null') as StoredSession; } catch { return null; } }
 export function getAccessToken(): string | null { return sessionStorage.getItem(TOKEN_KEY); }
 export function touchSession(): boolean { const session = getSession(); if (!session) return false; session.lastActivityAt = Date.now(); sessionStorage.setItem(SESSION_KEY, JSON.stringify(session)); return true; }
-export function clearSession(writeAudit = true) { sessionStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(TOKEN_KEY); clearFailedAttempts(); if (writeAudit) { /* Server audit is recorded at login/logout-sensitive endpoints. */ } }
+export function clearSession(writeAudit = true) { sessionStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(TOKEN_KEY); clearFailedAttempts(); void writeAudit; }
 
 export async function accountCount(): Promise<number> {
-  try { const res = await axios.get('/api/users'); return Array.isArray(res.data) ? res.data.length : 0; }
-  catch (error: any) { if (error?.response?.status === 401 || error?.response?.status === 403) return 0; throw error; }
+  const res = await axios.get('/api/auth/account-count');
+  return Number(res.data?.count || 0);
 }
 
 export async function createFirstAdmin(username: string, password: string): Promise<StoredSession> {
@@ -85,30 +85,9 @@ export function canAccess(role: UserRole, permission: 'settings' | 'finance' | '
   return ['contracts','customers','properties','dashboard'].includes(permission);
 }
 
-export async function createUserByAdmin(username: string, password: string, email: string, phone: string, role: string, q1 = '', a1 = '', q2 = '', a2 = '') {
-  const res = await axios.post('/api/users', { username, password, email, phone, role, q1, a1, q2, a2 });
-  return res.data;
-}
-
-export async function registerUser(username: string, password: string, email: string, phone: string, q1: string, a1: string, q2: string, a2: string) {
-  await axios.post('/api/auth/register', { username, password, email, phone, q1, a1, q2, a2 });
-}
-
-export async function getUserSecurityQuestions(username: string) {
-  const res = await axios.get('/api/auth/security-questions', { params: { username: username.trim().toLowerCase() } });
-  return res.data as { q1: string; q2: string };
-}
-
-export async function recoverUsername(emailOrPhone: string): Promise<string[]> {
-  const res = await axios.post('/api/auth/recover-username', { emailOrPhone });
-  return Array.isArray(res.data?.usernames) ? res.data.usernames : [];
-}
-
-export async function recoverPassword(username: string, a1: string, a2: string, newPassword: string): Promise<void> {
-  await axios.post('/api/auth/recover-password', { username, a1, a2, newPassword });
-}
-
-export async function changePassword(userId: number, currentPassword: string, newPassword: string): Promise<void> {
-  void userId;
-  await axios.post('/api/users/change-password', { currentPassword, newPassword });
-}
+export async function createUserByAdmin(username: string, password: string, email: string, phone: string, role: string, q1 = '', a1 = '', q2 = '', a2 = '') { const res = await axios.post('/api/users', { username, password, email, phone, role, q1, a1, q2, a2 }); return res.data; }
+export async function registerUser(username: string, password: string, email: string, phone: string, q1: string, a1: string, q2: string, a2: string) { await axios.post('/api/auth/register', { username, password, email, phone, q1, a1, q2, a2 }); }
+export async function getUserSecurityQuestions(username: string) { const res = await axios.get('/api/auth/security-questions', { params: { username: username.trim().toLowerCase() } }); return res.data as { q1: string; q2: string }; }
+export async function recoverUsername(emailOrPhone: string): Promise<string[]> { const res = await axios.post('/api/auth/recover-username', { emailOrPhone }); return Array.isArray(res.data?.usernames) ? res.data.usernames : []; }
+export async function recoverPassword(username: string, a1: string, a2: string, newPassword: string): Promise<void> { await axios.post('/api/auth/recover-password', { username, a1, a2, newPassword }); }
+export async function changePassword(userId: number, currentPassword: string, newPassword: string): Promise<void> { void userId; await axios.post('/api/users/change-password', { currentPassword, newPassword }); }
