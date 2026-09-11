@@ -6,7 +6,7 @@
   "description": "مدیریت مشتریان و صدور فاکتور برای مشاوران املاک",
   "scripts": {
     "dev": "tsx src/server/supervisor.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild src/server/supervisor.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/supervisor.cjs",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild src/server/supervisor.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/supervisor.cjs && cp src/server/api-guard.mjs dist/server-api-guard.mjs",
     "start": "node dist/supervisor.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
@@ -41,7 +41,6 @@
     "motion": "^12.23.24",
     "multer": "^1.4.5-lts.2",
     "num2persian": "^4.3.0",
-    "pg": "^8.23.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "react-hook-form": "^7.87.0",
@@ -52,7 +51,7 @@
     "tailwind-merge": "^3.6.1",
     "uuid": "^14.0.2",
     "vite": "^6.2.3",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
