@@ -20,6 +20,7 @@ PostgreSQL منبع حقیقت سامانه است. لایه `src/db/db.ts` یک
 - Session با توکن امضاشده HMAC و زمان انقضا کنترل می‌شود.
 - `AUTH_SECRET` در Production باید حداقل ۳۲ کاراکتر تصادفی باشد.
 - Login دارای محدودیت تلاش در سطح IP + username است.
+- APIهای Bot و ارسال پیام نیز باید از همان احراز هویت Server-side عبور کنند؛ Webhookهای ورودی تنها مسیر عمومی هستند.
 
 ## 3. RBAC
 
@@ -91,3 +92,11 @@ Internet
 ```
 
 برای چند سرور، Scheduler backup باید فقط روی یک worker فعال باشد یا با distributed lock اجرا شود تا چند backup همزمان تولید نشود.
+
+## 8. Security findings pass
+
+- `bot-settings.json` و `bot-users.json` در ignore قرار گرفته‌اند و نباید دوباره track شوند.
+- Bot APIها باید قبل از production احراز هویت شوند.
+- connected users نباید سقف ثابت و بی‌صدا داشته باشد.
+- شناسه‌های Bot نباید بین platformها به‌صورت خودکار cross-resolve شوند.
+- نبود provider پیامک نباید پاسخ موفق ساختگی تولید کند.
