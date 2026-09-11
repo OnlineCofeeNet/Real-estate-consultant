@@ -1,4 +1,6 @@
-import type { MatchTier, Property, PropertyRequest } from '../types';
+import type { Property, PropertyRequest } from '../types';
+
+export type MatchTier = 'excellent' | 'good' | 'fair' | 'weak' | 'none';
 
 export interface MatchBreakdownItem {
   key: string;
