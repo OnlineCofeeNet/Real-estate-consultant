@@ -27,6 +27,7 @@
     "cors": "^2.8.6",
     "dexie": "^4.4.5",
     "dexie-react-hooks": "^4.4.0",
+    "dexie-react-hooks": "^4.4.0",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "express": "^4.21.2",
@@ -41,6 +42,7 @@
     "motion": "^12.23.24",
     "multer": "^1.4.5-lts.2",
     "num2persian": "^4.3.0",
+    "pg": "^8.23.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "react-hook-form": "^7.87.0",
@@ -51,7 +53,7 @@
     "tailwind-merge": "^3.6.1",
     "uuid": "^14.0.2",
     "vite": "^6.2.3",
-    "xlsx": "^0.18.0"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
