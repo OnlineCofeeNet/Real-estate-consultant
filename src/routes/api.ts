@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import mediaRouter from './media.ts';
 import matchingRouter from './matching.ts';
+import backupRouter from './backup.ts';
 import { db } from '../db/index.ts';
 import {
   customers,
@@ -262,5 +263,6 @@ router.delete('/contracts/:id/cascade', async (req, res) => {
 
 router.use('/media', mediaRouter);
 router.use('/matching', matchingRouter);
+router.use('/backup', backupRouter);
 
 export default router;

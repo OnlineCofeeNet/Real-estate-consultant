@@ -2,18 +2,49 @@
 <html lang="fa" dir="rtl">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#2563eb" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="املاک فراز" />
     <link rel="icon" type="image/png" href="/icon.png" />
-    <title>سامانه مدیریت فاکتور املاک</title>
-    <meta name="description" content="نرم افزار مدیریت جامع قراردادها، فاکتورها، و مشتریان آژانس املاک، با پشتیبانی از اتصال به چاپگر، دستگاه کارتخوان (POS) و تقویم شمسی." />
+    <link rel="apple-touch-icon" href="/icon.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>سامانه مدیریت فاکتور املاک | مشاور املاک فراز</title>
+    <meta name="description" content="نرم افزار مدیریت جامع قراردادها، فاکتورها، و مشتریان آژانس املاک، با پشتیبانی از اتصال به چاپگر، دستگاه کارتخوان (POS) و تقویم شمسی. قابلیت نصب روی موبایل و دسکتاپ." />
     <meta property="og:title" content="سامانه مدیریت فاکتور املاک" />
     <meta property="og:description" content="نرم افزار مدیریت جامع قراردادها، فاکتورها، و مشتریان آژانس املاک، با پشتیبانی از اتصال به چاپگر، دستگاه کارتخوان (POS) و تقویم شمسی." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <!-- فونت‌های محلی اولویت دارند؛ CDN به عنوان fallback -->
+    <link rel="preconnect" href="https://cdn.fontcdn.ir" crossorigin />
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // ثبت Service Worker برای پشتیبانی آفلاین و نصب PWA
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then((reg) => {
+              console.log('[SW] registered', reg.scope);
+              // بررسی آپدیت
+              reg.addEventListener('updatefound', () => {
+                const newWorker = reg.installing;
+                if (newWorker) {
+                  newWorker.addEventListener('statechange', () => {
+                    if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                      console.log('[SW] New version available');
+                    }
+                  });
+                }
+              });
+            })
+            .catch((err) => console.warn('[SW] register failed', err));
+        });
+      }
+    </script>
   </body>
 </html>
-

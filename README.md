@@ -4,6 +4,8 @@
 
 یک وب‌اپلیکیشن مدرن با رابط کاربری کاملاً فارسی و راست‌چین (RTL)، پشتیبانی از تاریخ جلالی، چاپ حرفه‌ای قرارداد و فاکتور، و اتوماسیون پیامک و پیام‌رسان‌های ایرانی.
 
+**قابلیت نصب به عنوان اپلیکیشن روی اندروید و ویندوز (PWA) + پشتیبان‌گیری آفلاین و سمت سرور.**
+
 ---
 
 ## ویژگی‌ها
@@ -31,11 +33,22 @@
 - پشتیبانی از تلگرام، بله، روبیکا و SMS
 - لاگ کامل ارسال پیام‌ها
 
+### پشتیبان‌گیری و آفلاین (جدید)
+- دانلود/بازیابی پشتیبان کامل به صورت فایل JSON (آفلاین)
+- پشتیبان خودکار محلی (localStorage) هنگام بستن تب
+- ذخیره و بازیابی پشتیبان از سمت سرور (`/api/backup`)
+- کامپوننت آماده `BackupPanel` برای صفحه تنظیمات
+
+### نصب به عنوان اپلیکیشن (PWA)
+- قابل نصب روی اندروید (Chrome) و ویندوز (Edge/Chrome)
+- Service Worker برای کش پایه و کارکرد جزئی آفلاین
+- Manifest کامل با پشتیبانی RTL
+
 ### سایر امکانات
 - احراز هویت امن با نقش‌های مختلف (Admin / Manager / Agent / Accountant)
 - پشتیبانی کامل از تاریخ جلالی
 - تم روشن/تاریک و تنظیمات ظاهری
-- پشتیبان‌گیری و بازیابی خودکار
+- فونت‌های فارسی با اولویت فایل محلی + fallback سیستم (سازگار با همه دستگاه‌ها)
 - رابط کاربری واکنش‌گرا و مناسب موبایل
 
 ---
@@ -48,11 +61,12 @@
 | استایل | Tailwind CSS 4 |
 | Backend | Express + TypeScript |
 | ORM | Drizzle ORM |
-| دیتابیس | PostgreSQL + Dexie (IndexedDB) |
+| دیتابیس | PostgreSQL |
 | احراز هویت | PBKDF2 (Web Crypto) + Session |
 | تاریخ | moment-jalaali |
 | چاپ و PDF | html2canvas + jsPDF |
 | نمودار | Recharts |
+| PWA | Service Worker + Web App Manifest |
 
 ---
 
@@ -98,7 +112,11 @@ NODE_ENV=development
 
 > **توجه:** هرگز فایل `.env` را در گیت کامیت نکنید.
 
-### ۴. اجرای پروژه در حالت توسعه
+### ۴. فونت‌های محلی (توصیه می‌شود)
+
+برای نمایش بهتر فارسی در حالت آفلاین، فایل‌های woff2 را طبق راهنمای `public/fonts/README.md` اضافه کنید.
+
+### ۵. اجرای پروژه در حالت توسعه
 
 ```bash
 npm run dev
@@ -106,7 +124,7 @@ npm run dev
 
 برنامه روی `http://localhost:3000` (یا پورت تعیین‌شده) اجرا می‌شود.
 
-### ۵. بیلد و اجرای Production
+### ۶. بیلد و اجرای Production
 
 ```bash
 npm run build
@@ -119,24 +137,18 @@ npm start
 
 ```text
 ├── src/
-│   ├── components/          # کامپوننت‌های مشترک (Layout, AuthGate, ...)
-│   ├── pages/               # صفحات اصلی
-│   │   ├── Dashboard.tsx
-│   │   ├── Customers.tsx
-│   │   ├── Contracts.tsx
-│   │   ├── Finance.tsx
-│   │   ├── Settings.tsx
-│   │   ├── Users.tsx
-│   │   └── Help.tsx
-│   ├── db/                  # schema و اتصال Drizzle + Dexie
+│   ├── components/          # Layout, AuthGate, BackupPanel, ...
+│   ├── pages/               # Dashboard, Customers, Contracts, ...
+│   ├── db/                  # schema و اتصال Drizzle
 │   ├── services/            # منطق کسب‌وکار و احراز هویت
-│   ├── hooks/               # هوک‌های سفارشی (اتوماسیون پیام و ...)
-│   ├── utils/               # توابع کمکی (فرمت، تاریخ، بکاپ)
-│   ├── routes/              # مسیرهای API
+│   ├── hooks/               # هوک‌های سفارشی
+│   ├── utils/               # فرمت، تاریخ، BackupManager
+│   ├── routes/              # مسیرهای API (شامل backup)
 │   └── types.ts
 ├── docs/                    # مستندات فنی
-├── public/                  # فایل‌های استاتیک
-├── server.ts                # سرور Express
+├── public/                  # استاتیک + manifest + sw.js + fonts
+├── backups/                 # پشتیبان‌های سمت سرور
+├── server.ts
 ├── package.json
 └── vite.config.ts
 ```
@@ -172,6 +184,7 @@ npm run clean        # پاک کردن پوشه dist
 
 - [مدل احراز هویت](docs/AUTHENTICATION.md)
 - [نقشه راه ارتقای وب‌اپلیکیشن](docs/WEBAPP-UPGRADE.md)
+- [آفلاین، PWA و پشتیبان‌گیری](docs/OFFLINE-PWA-BACKUP.md)
 
 ---
 
@@ -185,7 +198,7 @@ npm run clean        # پاک کردن پوشه dist
 3. مهاجرت کامل داده به PostgreSQL
 4. افزودن ماژول املاک (MLS) و درخواست مشتری
 5. صف پیام حرفه‌ای و لاگ کامل
-6. آماده‌سازی Production
+6. آماده‌سازی Production + آفلاین کامل
 
 جزئیات کامل در فایل [`docs/WEBAPP-UPGRADE.md`](docs/WEBAPP-UPGRADE.md) آمده است.
 
