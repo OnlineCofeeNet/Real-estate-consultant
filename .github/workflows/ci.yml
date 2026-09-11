@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, production-hardening-2026-09]
   pull_request:
     branches: [main]
 
@@ -12,7 +12,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -29,6 +29,9 @@ jobs:
 
       - name: Typecheck
         run: npm run lint
+
+      - name: Unit tests
+        run: npm test
 
       - name: Production build
         run: npm run build

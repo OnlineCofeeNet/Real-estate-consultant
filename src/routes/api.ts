@@ -1,266 +1,64 @@
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
+import crypto from 'crypto';
 import mediaRouter from './media.ts';
 import matchingRouter from './matching.ts';
 import { db } from '../db/index.ts';
-import {
-  customers,
-  contracts,
-  invoices,
-  payments,
-  messageLogs,
-  auditLogs,
-  settings,
-  users,
-  properties,
-  areas,
-  propertyImages,
-  propertyMedia,
-} from '../db/schema.ts';
+import { customers, contracts, invoices, payments, messageLogs, auditLogs, settings, users, properties, areas, propertyImages, propertyMedia } from '../db/schema.ts';
 import { eq } from 'drizzle-orm';
+import { authRequired, findUser, issueToken, publicUser, requirePermission, verifyPassword, type Permission } from '../server/auth.ts';
+import { assertId, assertObject, assertPassword, assertPlainPayload, assertUsername, sanitizeCrudBody, ValidationError } from '../server/validation.ts';
 
 const router = Router();
+const loginFailures = new Map<string, { count: number; resetAt: number }>();
+const LOGIN_LIMIT = 8;
+const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 
-const addAuditLog = async (action: string, entity: string, details: string, user: string = 'System') => {
-  try {
-    await db.insert(auditLogs).values({
-      createdAt: Date.now(),
-      action,
-      entity,
-      description: details,
-      entityId: user
-    });
-  } catch(e) {
-    console.error('Audit Log Error:', e);
-  }
-};
+router.use((req, res, next) => { res.setHeader('Cache-Control', 'no-store'); res.setHeader('X-Content-Type-Options', 'nosniff'); next(); });
+function audit(action: string, entity: string, description: string, req?: Request) { return db.insert(auditLogs).values({ createdAt: Date.now(), action, entity, description, entityId: req?.user ? String(req.user.id) : 'system' }).catch(error => console.error('Audit log error:', error)); }
+function handleError(res: Response, error: unknown) { if (error instanceof ValidationError) return res.status(400).json({ error: error.message }); console.error(error); return res.status(500).json({ error: 'خطای داخلی سرور رخ داد.' }); }
+function loginKey(req: Request, username: string) { return `${req.ip}:${username}`; }
+function checkLoginRate(req: Request, username: string) { const key = loginKey(req, username); const now = Date.now(); const state = loginFailures.get(key); if (state && state.resetAt > now && state.count >= LOGIN_LIMIT) throw new ValidationError('تعداد تلاش‌های ورود بیش از حد مجاز است. چند دقیقه دیگر دوباره تلاش کنید.'); }
+function recordLoginFailure(req: Request, username: string) { const key = loginKey(req, username); const now = Date.now(); const state = loginFailures.get(key); if (!state || state.resetAt <= now) loginFailures.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS }); else state.count += 1; }
+function clearLoginFailures(req: Request, username: string) { loginFailures.delete(loginKey(req, username)); }
 
-const createCrudRoutes = (tableName: string, tableSchema: any) => {
-  router.get(`/${tableName}`, async (req, res) => {
-    try {
-      const result = await db.select().from(tableSchema);
-      res.json(result);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
+router.get('/auth/account-count', async (_req, res) => { try { const result = await db.select({ id: users.id }).from(users); return res.json({ count: result.length }); } catch (error) { return handleError(res, error); } });
 
-  router.post(`/${tableName}`, async (req, res) => {
-    try {
-      const result = await db.insert(tableSchema).values(req.body).returning();
-      await addAuditLog('create', tableName, `Created record ID: ${result[0]?.id}`);
-      res.json(result[0]?.id);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  router.put(`/${tableName}/:id`, async (req, res) => {
-    try {
-      await db.update(tableSchema).set(req.body).where(eq(tableSchema.id, parseInt(req.params.id)));
-      await addAuditLog('update', tableName, `Updated record ID: ${req.params.id}`);
-      res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  router.delete(`/${tableName}/:id`, async (req, res) => {
-    try {
-      await db.delete(tableSchema).where(eq(tableSchema.id, parseInt(req.params.id)));
-      await addAuditLog('delete', tableName, `Deleted record ID: ${req.params.id}`);
-      res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-};
-
-createCrudRoutes('customers', customers);
-createCrudRoutes('contracts', contracts);
-createCrudRoutes('invoices', invoices);
-createCrudRoutes('payments', payments);
-createCrudRoutes('messageLogs', messageLogs);
-createCrudRoutes('auditLogs', auditLogs);
-createCrudRoutes('properties', properties);
-createCrudRoutes('areas', areas);
-createCrudRoutes('propertyImages', propertyImages);
-createCrudRoutes('propertyMedia', propertyMedia);
-
-router.post('/users/recover-sms', async (req, res) => {
-  const { username, phone } = req.body;
-  try {
-    const result = await db.select().from(users).where(eq(users.username, username));
-    const user = result[0];
-    if (!user) {
-      return res.status(404).json({ error: 'کاربری با این مشخصات یافت نشد' });
-    }
-    if (user.phone !== phone) {
-      return res.status(400).json({ error: 'شماره موبایل وارد شده با اطلاعات حساب مطابقت ندارد' });
-    }
-
-    const newPassword = Math.floor(10000000 + Math.random() * 90000000).toString();
-    const crypto = require('crypto');
-    const keyMaterial = await crypto.webcrypto.subtle.importKey(
-      'raw',
-      new TextEncoder().encode(newPassword),
-      'PBKDF2',
-      false,
-      ['deriveBits']
-    );
-    const saltBuffer = Buffer.from(user.salt, 'base64');
-    const bits = await crypto.webcrypto.subtle.deriveBits(
-      { name: 'PBKDF2', salt: saltBuffer, iterations: 100000, hash: 'SHA-256' },
-      keyMaterial,
-      256
-    );
-    const newPasswordHash = Buffer.from(bits).toString('base64');
-
-    await db.update(users).set({ passwordHash: newPasswordHash }).where(eq(users.id, user.id));
-
-    const messageText = `رمز عبور جدید شما برای سامانه املاک:\nنام کاربری: ${username}\nرمز عبور: ${newPassword}`;
-
-    try {
-      await fetch('http://localhost:3000/api/bot/send-sms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, message: messageText, customerName: user.username })
-      });
-    } catch (e) {
-      console.error('Failed to send SMS to bot API internally', e);
-    }
-
-    res.json({ success: true, message: 'رمز عبور جدید به شماره موبایل شما ارسال شد.' });
-  } catch (e: any) {
-    console.error(e);
-    res.status(500).json({ error: e.message });
-  }
+router.post('/auth/bootstrap', async (req, res) => {
+  try { const body = assertObject(req.body); const username = assertUsername(body.username); const password = assertPassword(body.password); const existing = await db.select({ id: users.id }).from(users); if (existing.length > 0) return res.status(409).json({ error: 'حساب اولیه قبلاً ایجاد شده است.' }); const salt = crypto.randomBytes(16).toString('base64'); const passwordHash = await new Promise<string>((resolve, reject) => crypto.pbkdf2(Buffer.from(password), Buffer.from(salt, 'base64'), 310000, 32, 'sha256', (e, b) => e ? reject(e) : resolve(b.toString('base64')))); const result = await db.insert(users).values({ username, passwordHash, salt, role: 'admin', createdAt: Date.now() }).returning(); const user = result[0]; const token = issueToken({ id: user.id, username: user.username, role: user.role }); await audit('create', 'users', `Initial administrator created: ${username}`); return res.status(201).json({ token, user: publicUser(user) }); } catch (error) { return handleError(res, error); }
 });
 
-router.post('/users/login-fetch', async (req, res) => {
-  const { username } = req.body;
-  try {
-    const result = await db.select().from(users).where(eq(users.username, username));
-    res.json(result[0] || null);
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
+router.post('/auth/login', async (req, res) => {
+  try { const body = assertObject(req.body); const username = assertUsername(body.username); const password = String(body.password ?? ''); checkLoginRate(req, username); const user = await findUser(username); if (!user || !user.passwordHash || !user.salt || !(await verifyPassword(password, user.salt, user.passwordHash))) { recordLoginFailure(req, username); await audit('login_failed', 'users', `Failed login: ${username}`); return res.status(401).json({ error: 'نام کاربری یا رمز عبور نادرست است.' }); } if (user.role === 'pending') return res.status(403).json({ error: 'حساب کاربری شما در انتظار تایید مدیر سیستم است.' }); clearLoginFailures(req, username); await db.update(users).set({ lastLoginAt: Date.now() }).where(eq(users.id, user.id)); const token = issueToken({ id: user.id, username: user.username, role: user.role }); await audit('login', 'users', `Successful login: ${username}`); return res.json({ token, user: publicUser(user) }); } catch (error) { return handleError(res, error); }
 });
 
-router.get('/users', async (req, res) => {
-  try {
-    const result = await db.select().from(users);
-    const safeUsers = result.map(u => ({
-      ...u,
-      passwordHash: undefined,
-      salt: undefined,
-      securityAnswer1Hash: undefined,
-      securityAnswer2Hash: undefined
-    }));
-    res.json(safeUsers);
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
+router.post('/auth/register', async (req, res) => {
+  try { const body = assertObject(req.body); const username = assertUsername(body.username); const password = assertPassword(body.password); if (!String(body.email ?? '').trim() || !String(body.phone ?? '').trim()) throw new ValidationError('ایمیل و شماره موبایل الزامی است.'); const existing = await findUser(username); if (existing) return res.status(409).json({ error: 'این نام کاربری قبلاً ثبت شده است.' }); const salt = crypto.randomBytes(16).toString('base64'); const passwordHash = await new Promise<string>((resolve, reject) => crypto.pbkdf2(Buffer.from(password), Buffer.from(salt, 'base64'), 310000, 32, 'sha256', (e, b) => e ? reject(e) : resolve(b.toString('base64')))); const answer1 = String(body.a1 ?? '').trim().toLowerCase(); const answer2 = String(body.a2 ?? '').trim().toLowerCase(); if (!body.q1 || !answer1 || !body.q2 || !answer2) throw new ValidationError('سوال و پاسخ‌های امنیتی الزامی هستند.'); const hashAnswer = (value: string) => new Promise<string>((resolve, reject) => crypto.pbkdf2(Buffer.from(value), Buffer.from(salt, 'base64'), 310000, 32, 'sha256', (e, b) => e ? reject(e) : resolve(b.toString('base64')))); const [securityAnswer1Hash, securityAnswer2Hash] = await Promise.all([hashAnswer(answer1), hashAnswer(answer2)]); await db.insert(users).values({ username, passwordHash, salt, role: 'agent', email: String(body.email).trim().toLowerCase(), phone: String(body.phone).trim(), securityQuestion1: String(body.q1).trim(), securityAnswer1Hash, securityQuestion2: String(body.q2).trim(), securityAnswer2Hash, createdAt: Date.now() }); await audit('register', 'users', `New pending registration: ${username}`); return res.status(201).json({ success: true }); } catch (error) { return handleError(res, error); }
 });
+router.get('/auth/security-questions', async (req, res) => { try { const username = assertUsername(req.query.username); const user = await findUser(username); if (!user) return res.status(404).json({ error: 'کاربر یافت نشد.' }); return res.json({ q1: user.securityQuestion1 || '', q2: user.securityQuestion2 || '' }); } catch (error) { return handleError(res, error); } });
+router.post('/auth/recover-password', async (req, res) => { try { const body = assertObject(req.body); const username = assertUsername(body.username); const user = await findUser(username); if (!user) return res.status(400).json({ error: 'اطلاعات بازیابی نامعتبر است.' }); const answer1 = String(body.a1 ?? '').trim().toLowerCase(); const answer2 = String(body.a2 ?? '').trim().toLowerCase(); if (!user.salt || !user.securityAnswer1Hash || !user.securityAnswer2Hash || !(await verifyPassword(answer1, user.salt, user.securityAnswer1Hash)) || !(await verifyPassword(answer2, user.salt, user.securityAnswer2Hash))) return res.status(400).json({ error: 'پاسخ‌های امنیتی نادرست است.' }); const password = assertPassword(body.newPassword); const passwordHash = await new Promise<string>((resolve, reject) => crypto.pbkdf2(Buffer.from(password), Buffer.from(user.salt, 'base64'), 310000, 32, 'sha256', (e, b) => e ? reject(e) : resolve(b.toString('base64')))); await db.update(users).set({ passwordHash }).where(eq(users.id, user.id)); await audit('password_reset', 'users', `Password reset: ${username}`); return res.json({ success: true }); } catch (error) { return handleError(res, error); } });
+router.post('/auth/recover-username', async (req, res) => { try { const query = String(req.body?.emailOrPhone ?? '').trim().toLowerCase(); if (!query) throw new ValidationError('ایمیل یا شماره موبایل الزامی است.'); const rows = await db.select().from(users); const matches = rows.filter(u => String(u.email || '').toLowerCase() === query || String(u.phone || '') === query).map(u => u.username); return res.json({ usernames: matches }); } catch (error) { return handleError(res, error); } });
 
-createCrudRoutes('users', users);
+router.use(authRequired);
+const crudConfig: Record<string, { table: any; read: Permission; write: Permission }> = { customers: { table: customers, read: 'customers:read', write: 'customers:write' }, contracts: { table: contracts, read: 'contracts:read', write: 'contracts:write' }, invoices: { table: invoices, read: 'finance:read', write: 'finance:write' }, payments: { table: payments, read: 'finance:read', write: 'finance:write' }, messageLogs: { table: messageLogs, read: 'audit:read', write: 'audit:read' }, auditLogs: { table: auditLogs, read: 'audit:read', write: 'audit:read' }, properties: { table: properties, read: 'properties:read', write: 'properties:write' }, areas: { table: areas, read: 'properties:read', write: 'properties:write' }, propertyImages: { table: propertyImages, read: 'properties:read', write: 'properties:write' }, propertyMedia: { table: propertyMedia, read: 'properties:read', write: 'properties:write' } };
+for (const [name, config] of Object.entries(crudConfig)) {
+  router.get(`/${name}`, requirePermission(config.read), async (_req, res) => { try { return res.json(await db.select().from(config.table)); } catch (error) { return handleError(res, error); } });
+  router.post(`/${name}`, requirePermission(config.write), async (req, res) => { try { const body = sanitizeCrudBody(assertPlainPayload(req.body)); const result = await db.insert(config.table).values(body).returning(); await audit('create', name, `Created record ID: ${result[0]?.id}`, req); return res.json(result[0]?.id); } catch (error) { return handleError(res, error); } });
+  router.put(`/${name}/:id`, requirePermission(config.write), async (req, res) => { try { const id = assertId(req.params.id); const body = sanitizeCrudBody(assertPlainPayload(req.body)); await db.update(config.table).set(body).where(eq(config.table.id, id)); await audit('update', name, `Updated record ID: ${id}`, req); return res.json({ success: true }); } catch (error) { return handleError(res, error); } });
+  router.delete(`/${name}/:id`, requirePermission(config.write), async (req, res) => { try { const id = assertId(req.params.id); await db.delete(config.table).where(eq(config.table.id, id)); await audit('delete', name, `Deleted record ID: ${id}`, req); return res.json({ success: true }); } catch (error) { return handleError(res, error); } });
+}
 
-router.get('/settings', async (req, res) => {
-  try {
-    const result = await db.select().from(settings).where(eq(settings.id, 1));
-    if (result.length > 0) {
-      res.json(result[0].data);
-    } else {
-      res.json(null);
-    }
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
+router.get('/users', requirePermission('users:read'), async (_req, res) => { try { const result = await db.select().from(users); return res.json(result.map(publicUser)); } catch (error) { return handleError(res, error); } });
+router.post('/users', requirePermission('users:write'), async (req, res) => { try { const body = assertObject(req.body); const username = assertUsername(body.username); const password = assertPassword(body.password); if (!['admin','manager','agent','accountant'].includes(body.role)) throw new ValidationError('نقش کاربر نامعتبر است.'); if (await findUser(username)) return res.status(409).json({ error: 'این نام کاربری قبلاً وجود دارد.' }); const salt = crypto.randomBytes(16).toString('base64'); const passwordHash = await new Promise<string>((resolve, reject) => crypto.pbkdf2(Buffer.from(password), Buffer.from(salt, 'base64'), 310000, 32, 'sha256', (e, b) => e ? reject(e) : resolve(b.toString('base64')))); const result = await db.insert(users).values({ username, passwordHash, salt, role: body.role, phone: String(body.phone || '').trim(), email: String(body.email || '').trim().toLowerCase(), createdAt: Date.now() }).returning(); await audit('create', 'users', `Created user ${username}`, req); return res.status(201).json(publicUser(result[0])); } catch (error) { return handleError(res, error); } });
+router.put('/users/:id', requirePermission('users:write'), async (req, res) => { try { const id = assertId(req.params.id); const body = assertObject(req.body); const patch: any = {}; if (body.role && ['admin','manager','agent','accountant'].includes(body.role)) patch.role = body.role; if (body.phone !== undefined) patch.phone = String(body.phone); if (body.email !== undefined) patch.email = String(body.email).toLowerCase(); await db.update(users).set(patch).where(eq(users.id, id)); await audit('update', 'users', `Updated user ID ${id}`, req); return res.json({ success: true }); } catch (error) { return handleError(res, error); } });
+router.delete('/users/:id', requirePermission('users:write'), async (req, res) => { try { const id = assertId(req.params.id); if (id === req.user!.id) return res.status(400).json({ error: 'کاربر جاری نمی‌تواند حساب خودش را حذف کند.' }); await db.delete(users).where(eq(users.id, id)); await audit('delete', 'users', `Deleted user ID ${id}`, req); return res.json({ success: true }); } catch (error) { return handleError(res, error); } });
 
-router.post('/settings', async (req, res) => {
-  try {
-    const result = await db.insert(settings).values({ id: 1, data: req.body })
-      .onConflictDoUpdate({ target: settings.id, set: { data: req.body } })
-      .returning();
-    await addAuditLog('create/update', 'settings', 'Updated global settings');
-    res.json(result[0]?.id);
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
+router.get('/settings', requirePermission('settings:read'), async (_req, res) => { try { const result = await db.select().from(settings).where(eq(settings.id, 1)); return res.json(result[0]?.data ?? null); } catch (error) { return handleError(res, error); } });
+router.post('/settings', requirePermission('settings:write'), async (req, res) => { try { const body = assertPlainPayload(req.body); const result = await db.insert(settings).values({ id: 1, data: body }).onConflictDoUpdate({ target: settings.id, set: { data: body } }).returning(); await audit('update', 'settings', 'Updated global settings', req); return res.json(result[0]?.id); } catch (error) { return handleError(res, error); } });
+router.put('/settings/1', requirePermission('settings:write'), async (req, res) => { try { const body = assertPlainPayload(req.body); await db.update(settings).set({ data: body }).where(eq(settings.id, 1)); await audit('update', 'settings', 'Updated global settings', req); return res.json({ success: true }); } catch (error) { return handleError(res, error); } });
+router.post('/users/change-password', async (req, res) => { try { const body = assertObject(req.body); const current = String(body.currentPassword ?? ''); const next = assertPassword(body.newPassword); const user = await findUser(req.user!.username); if (!user || !(await verifyPassword(current, user.salt, user.passwordHash))) return res.status(400).json({ error: 'رمز عبور فعلی نادرست است.' }); const hash = await new Promise<string>((resolve, reject) => crypto.pbkdf2(Buffer.from(next), Buffer.from(user.salt, 'base64'), 310000, 32, 'sha256', (e, b) => e ? reject(e) : resolve(b.toString('base64')))); await db.update(users).set({ passwordHash: hash }).where(eq(users.id, user.id)); await audit('password_change', 'users', `Changed password for ${user.username}`, req); return res.json({ success: true }); } catch (error) { return handleError(res, error); } });
 
-router.put('/settings/1', async (req, res) => {
-  try {
-    await db.update(settings).set({ data: req.body }).where(eq(settings.id, 1));
-    await addAuditLog('update', 'settings', 'Updated global settings');
-    res.json({ success: true });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-router.post('/contracts/complete', async (req, res) => {
-  const { contract, invoice1, payment1, invoice2, payment2 } = req.body;
-
-  try {
-    const result = await db.transaction(async (tx) => {
-      const contractResult = await tx.insert(contracts).values(contract).returning();
-      const contractId = contractResult[0]?.id;
-
-      let resData: any = { contractId };
-
-      if (invoice1) {
-        invoice1.contractId = contractId;
-        const inv1Result = await tx.insert(invoices).values(invoice1).returning();
-        const inv1Id = inv1Result[0]?.id;
-        resData.invoice1Id = inv1Id;
-
-        if (payment1) {
-          payment1.invoiceId = inv1Id;
-          const pay1Result = await tx.insert(payments).values(payment1).returning();
-          resData.payment1Id = pay1Result[0]?.id;
-        }
-      }
-
-      if (invoice2) {
-        invoice2.contractId = contractId;
-        const inv2Result = await tx.insert(invoices).values(invoice2).returning();
-        const inv2Id = inv2Result[0]?.id;
-        resData.invoice2Id = inv2Id;
-
-        if (payment2) {
-          payment2.invoiceId = inv2Id;
-          const pay2Result = await tx.insert(payments).values(payment2).returning();
-          resData.payment2Id = pay2Result[0]?.id;
-        }
-      }
-
-      return resData;
-    });
-
-    res.json(result);
-  } catch (e: any) {
-    console.error('Transaction failed:', e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-router.delete('/contracts/:id/cascade', async (req, res) => {
-  const contractId = parseInt(req.params.id);
-  try {
-    await db.transaction(async (tx) => {
-      await tx.delete(payments).where(eq(payments.contractId, contractId));
-      await tx.delete(invoices).where(eq(invoices.contractId, contractId));
-      await tx.delete(contracts).where(eq(contracts.id, contractId));
-    });
-    await addAuditLog('delete', 'contracts', `Cascade deleted contract ID: ${contractId}`);
-    res.json({ success: true });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-router.use('/media', mediaRouter);
-router.use('/matching', matchingRouter);
-
+router.post('/contracts/complete', requirePermission('contracts:write'), async (req, res) => { try { const body = assertObject(req.body); const contract = assertObject(body.contract, 'contract'); const invoice1 = body.invoice1 ? assertObject(body.invoice1, 'invoice1') : null; const payment1 = body.payment1 ? assertObject(body.payment1, 'payment1') : null; const invoice2 = body.invoice2 ? assertObject(body.invoice2, 'invoice2') : null; const payment2 = body.payment2 ? assertObject(body.payment2, 'payment2') : null; const result = await db.transaction(async (tx) => { const contractResult = await tx.insert(contracts).values(sanitizeCrudBody(contract)).returning(); const contractId = contractResult[0]?.id; const out: any = { contractId }; for (const [invoice, payment, key] of [[invoice1, payment1, '1'], [invoice2, payment2, '2']] as const) { if (!invoice) continue; invoice.contractId = contractId; const inv = await tx.insert(invoices).values(sanitizeCrudBody(invoice)).returning(); out[`invoice${key}Id`] = inv[0]?.id; if (payment) { payment.invoiceId = inv[0]?.id; payment.contractId = contractId; const pay = await tx.insert(payments).values(sanitizeCrudBody(payment)).returning(); out[`payment${key}Id`] = pay[0]?.id; } } return out; }); await audit('create', 'contracts', `Completed contract transaction ${result.contractId}`, req); return res.json(result); } catch (error) { return handleError(res, error); } });
+router.delete('/contracts/:id/cascade', requirePermission('contracts:write'), async (req, res) => { try { const id = assertId(req.params.id); await db.transaction(async tx => { await tx.delete(payments).where(eq(payments.contractId, id)); await tx.delete(invoices).where(eq(invoices.contractId, id)); await tx.delete(contracts).where(eq(contracts.id, id)); }); await audit('delete', 'contracts', `Cascade deleted contract ID: ${id}`, req); return res.json({ success: true }); } catch (error) { return handleError(res, error); } });
+router.use('/media', requirePermission('properties:read'), mediaRouter);
+router.use('/matching', requirePermission('properties:read'), matchingRouter);
 export default router;

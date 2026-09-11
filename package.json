@@ -12,6 +12,7 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/**/*.test.ts",
     "db:generate": "drizzle-kit generate --config=src/db/drizzle.config.ts",
     "db:push": "drizzle-kit push --config=src/db/drizzle.config.ts",
     "db:studio": "drizzle-kit studio --config=src/db/drizzle.config.ts"
