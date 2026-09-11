@@ -9,6 +9,7 @@ coverage/
 bot-settings.json
 bot-users.json
 backup.json
+backups/
 firebase-applet-config.json
 *.pem
 .env
