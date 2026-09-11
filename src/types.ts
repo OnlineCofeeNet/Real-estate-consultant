@@ -4,6 +4,36 @@ export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'cancelled';
 
 export type UserRole = 'admin' | 'manager' | 'agent' | 'accountant';
 
+/** آژانس (هسته Multi-tenancy) */
+export interface Agency {
+  id?: number;
+  name: string;
+  slug: string;
+  logoBase64?: string;
+  slogan?: string;
+  phone1?: string;
+  phone2?: string;
+  email?: string;
+  address?: string;
+  nationalId?: string;
+  economicCode?: string;
+  domain?: string;
+  plan: 'free' | 'basic' | 'pro' | 'enterprise';
+  isActive: boolean;
+  settings?: Partial<Settings>;
+  createdAt: number;
+  updatedAt?: number;
+}
+
+export interface UserAgency {
+  id?: number;
+  userId: number;
+  agencyId: number;
+  role: UserRole;
+  isActive?: boolean;
+  createdAt?: number;
+}
+
 export interface AuthUser {
   id?: number;
   username: string;
@@ -16,12 +46,15 @@ export interface AuthUser {
   securityAnswer2Hash?: string;
   phone?: string;
   email?: string;
+  primaryAgencyId?: number;
   createdAt: number;
   lastLoginAt?: number;
 }
 
 export interface Customer {
   id?: number;
+  agencyId?: number;
+  createdByUserId?: number;
   fullName: string;
   nationalId: string;
   phone: string;
@@ -47,6 +80,9 @@ export interface Customer {
 
 export interface Contract {
   id?: number;
+  agencyId?: number;
+  createdByUserId?: number;
+  propertyId?: number;
   contractNumber: string;
   date: string;
   endDate?: string;
@@ -69,6 +105,9 @@ export interface Contract {
   party1ChequeDate?: string;
   party2ChequeDate?: string;
   party1SharePercent?: number;
+  party2SharePercent?: number;
+  party1PaidAmount?: number;
+  party2PaidAmount?: number;
   rentDueDay?: number;
   renewalDate?: string;
   renewedCount?: number;
@@ -78,6 +117,7 @@ export interface Contract {
 
 export interface Invoice {
   id?: number;
+  agencyId?: number;
   invoiceNumber: string;
   contractId: number;
   contractNumber: string;
@@ -96,6 +136,7 @@ export interface Invoice {
 
 export interface Payment {
   id?: number;
+  agencyId?: number;
   invoiceId: number;
   contractId: number;
   amount: number;
@@ -187,6 +228,7 @@ export interface Settings {
 
 export interface MessageLog {
   id?: number;
+  agencyId?: number;
   date: number;
   customerName: string;
   phone: string;
@@ -197,10 +239,11 @@ export interface MessageLog {
 }
 
 export type AuditAction = 'create' | 'update' | 'delete' | 'restore' | 'export' | 'import' | 'payment';
-export type AuditEntity = 'customer' | 'contract' | 'settings' | 'invoice' | 'payment' | 'backup' | 'system' | 'property' | 'area' | 'property_media' | 'property_request';
+export type AuditEntity = 'customer' | 'contract' | 'settings' | 'invoice' | 'payment' | 'backup' | 'system' | 'property' | 'area' | 'property_media' | 'property_request' | 'agency';
 
 export interface AuditLog {
   id?: number;
+  agencyId?: number;
   action: AuditAction;
   entity: AuditEntity;
   entityId?: string;
@@ -254,6 +297,7 @@ export type PropertyFeature =
 
 export interface Area {
   id?: number;
+  agencyId?: number;
   name: string;
   city?: string;
   parentId?: number;
@@ -293,6 +337,7 @@ export interface PropertyMedia {
 
 export interface Property {
   id?: number;
+  agencyId?: number;
   code: string;
   title: string;
   propertyType: PropertyType;
@@ -331,6 +376,7 @@ export type RequestStatus = 'open' | 'matched' | 'closed' | 'archived';
 
 export interface PropertyRequest {
   id?: number;
+  agencyId?: number;
   customerId: number;
   title?: string;
   transactionType: TransactionType;
