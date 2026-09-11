@@ -9,7 +9,12 @@ const serverArgs = isProduction
   : [path.join(process.cwd(), 'node_modules/tsx/dist/cli.mjs'), path.join(process.cwd(), 'server.ts')];
 
 let shuttingDown = false;
-const child = spawn(serverCommand, serverArgs, { stdio: 'inherit', env: process.env });
+const preload = path.join(process.cwd(), 'src/server/api-guard.mjs');
+const childEnv = {
+  ...process.env,
+  NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${preload}`].filter(Boolean).join(' ')
+};
+const child = spawn(serverCommand, serverArgs, { stdio: 'inherit', env: childEnv });
 
 void startBackupScheduler();
 
