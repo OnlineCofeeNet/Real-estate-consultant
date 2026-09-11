@@ -11,6 +11,7 @@ import { db } from './db/db';
 import Layout from './components/Layout';
 import { AuthGate, ProtectedRoute } from './components/AuthGate';
 import { hasActiveSession, touchSession } from './services/auth';
+import { AgencyProvider } from './context/AgencyContext';
 import Dashboard from './pages/Dashboard';
 import Customers from './pages/Customers';
 import Contracts from './pages/Contracts';
@@ -69,35 +70,37 @@ export default function App() {
   }, [settings]);
 
   return (
-    <BrowserRouter>
-      <Toaster position="top-center" />
-      <Routes>
-        <Route element={<AuthGate />}>
-          <Route element={<Layout />}>
-            <Route index element={<Dashboard />} />
-            <Route element={<ProtectedRoute permission="contracts" />}>
-              <Route path="contracts" element={<Contracts />} />
+    <AgencyProvider>
+      <BrowserRouter>
+        <Toaster position="top-center" />
+        <Routes>
+          <Route element={<AuthGate />}>
+            <Route element={<Layout />}>
+              <Route index element={<Dashboard />} />
+              <Route element={<ProtectedRoute permission="contracts" />}>
+                <Route path="contracts" element={<Contracts />} />
+              </Route>
+              <Route element={<ProtectedRoute permission="finance" />}>
+                <Route path="finance" element={<Finance />} />
+              </Route>
+              <Route element={<ProtectedRoute permission="customers" />}>
+                <Route path="customers" element={<Customers />} />
+              </Route>
+              <Route element={<ProtectedRoute permission="properties" />}>
+                <Route path="properties" element={<Properties />} />
+                <Route path="matching" element={<Matching />} />
+              </Route>
+              <Route element={<ProtectedRoute permission="settings" />}>
+                <Route path="settings" element={<Settings />} />
+              </Route>
+              <Route element={<ProtectedRoute permission="users" />}>
+                <Route path="users" element={<Users />} />
+              </Route>
+              <Route path="help" element={<Help />} />
             </Route>
-            <Route element={<ProtectedRoute permission="finance" />}>
-              <Route path="finance" element={<Finance />} />
-            </Route>
-            <Route element={<ProtectedRoute permission="customers" />}>
-              <Route path="customers" element={<Customers />} />
-            </Route>
-            <Route element={<ProtectedRoute permission="properties" />}>
-              <Route path="properties" element={<Properties />} />
-              <Route path="matching" element={<Matching />} />
-            </Route>
-            <Route element={<ProtectedRoute permission="settings" />}>
-              <Route path="settings" element={<Settings />} />
-            </Route>
-            <Route element={<ProtectedRoute permission="users" />}>
-              <Route path="users" element={<Users />} />
-            </Route>
-            <Route path="help" element={<Help />} />
           </Route>
-        </Route>
-      </Routes>
-    </BrowserRouter>
+        </Routes>
+      </BrowserRouter>
+    </AgencyProvider>
   );
 }
