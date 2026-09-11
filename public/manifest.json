@@ -1,0 +1,29 @@
+{
+  "name": "مشاور املاک فراز",
+  "short_name": "املاک فراز",
+  "description": "سامانه مدیریت مشتریان، قراردادها و فاکتور مشاوران املاک",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "orientation": "any",
+  "lang": "fa",
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity"],
+  "screenshots": [],
+  "prefer_related_applications": false
+}
