@@ -2,17 +2,14 @@ import { spawn } from 'child_process';
 import path from 'path';
 import { createBackup, getBackupConfig, pruneBackups, stopBackupScheduler, startBackupScheduler } from './backup.ts';
 
-const isProduction = process.env.NODE_ENV === 'production';
-const serverCommand = isProduction ? process.execPath : process.execPath;
+const isProduction = process.env.NODE_ENV === 'production' || process.env.npm_lifecycle_event === 'start';
+const serverCommand = process.execPath;
 const serverArgs = isProduction
   ? [path.join(process.cwd(), 'dist/server.cjs')]
   : [path.join(process.cwd(), 'node_modules/tsx/dist/cli.mjs'), path.join(process.cwd(), 'server.ts')];
 
 let shuttingDown = false;
-const child = spawn(serverCommand, serverArgs, {
-  stdio: 'inherit',
-  env: process.env,
-});
+const child = spawn(serverCommand, serverArgs, { stdio: 'inherit', env: process.env });
 
 void startBackupScheduler();
 
@@ -20,7 +17,6 @@ async function shutdown(reason: string, exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
   stopBackupScheduler();
-
   try {
     const config = await getBackupConfig();
     if (config.enabled && config.backupOnExit) {
