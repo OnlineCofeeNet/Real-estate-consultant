@@ -1,4 +1,39 @@
 @import "tailwindcss";
+
+/* =====================================================
+   فونت‌های فارسی — اولویت با فایل محلی، سپس CDN، سپس سیستم
+   برای خودمیزبانی: فایل‌های woff2 را در public/fonts قرار دهید
+   ===================================================== */
+
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: local('Vazirmatn'),
+       url('/fonts/Vazirmatn-Variable.woff2') format('woff2-variations'),
+       url('/fonts/Vazirmatn-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IRANSans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: local('IRANSans'),
+       url('/fonts/IRANSans.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IRANSans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: local('IRANSans Bold'),
+       url('/fonts/IRANSans-Bold.woff2') format('woff2');
+}
+
+/* CDN به عنوان لایه دوم (اگر فایل محلی موجود نباشد) */
 @import url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.css');
 @import url('https://cdn.fontcdn.ir/Font/Persian/IRANSans/IRANSans.css');
 
@@ -32,16 +67,30 @@
   }
 }
 
-/* Persian Font Settings */
-
+/* Persian Font Settings — سازگار با همه دستگاه‌ها */
 body {
-  font-family: 'Vazir', sans-serif;
-  transition: all 0.3s ease;
+  font-family: 'Vazirmatn', 'Vazir', 'IRANSans', Tahoma, 'Segoe UI', 'Roboto', sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-body.vazirmatn-font { font-family: 'Vazir', sans-serif; }
-body.iransans-font { font-family: 'IRANSans', sans-serif; }
-body.yekanbakh-font { font-family: Tahoma, sans-serif; }
+body.vazirmatn-font {
+  font-family: 'Vazirmatn', 'Vazir', Tahoma, 'Segoe UI', sans-serif;
+}
+body.iransans-font {
+  font-family: 'IRANSans', Tahoma, 'Segoe UI', sans-serif;
+}
+body.yekanbakh-font {
+  font-family: Tahoma, 'Segoe UI', 'Roboto', sans-serif;
+}
+
+/* بهبود رندر روی اندروید و iOS */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
 
 body.dark-mode {
   background-color: #0f172a;
@@ -89,7 +138,6 @@ body.blue-theme .focus\:ring-emerald-500:focus { --tw-ring-color: #3b82f6; }
     box-shadow: none;
   }
   
-  /* Reset background and text colors for print to save ink */
   body.dark-mode #invoice-print-area,
   body.dark-mode #invoice-print-area * {
     color: #000 !important;
@@ -97,10 +145,7 @@ body.blue-theme .focus\:ring-emerald-500:focus { --tw-ring-color: #3b82f6; }
     border-color: #ddd !important;
   }
   
-  /* Force hide the buttons container within the modal during print if needed */
   .print-hide, .print-hide * {
     display: none !important;
   }
 }
-
-
