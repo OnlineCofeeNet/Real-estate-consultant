@@ -2,53 +2,48 @@ name: Security findings patch
 
 on:
   push:
-    branches: [hardening/security-findings-2026-09]
+    branches:
+      - hardening/security-findings-2026-09
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Apply security and bug fixes
+      - name: Patch server and customer pagination
+        shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
           server = Path('server.ts')
           text = server.read_text()
 
-          # Add server-side API authentication before any /api router is mounted.
-          old = "import { messageLogs } from './src/db/schema.ts';"
-          new = old + "\nimport { authRequired } from './src/server/auth.ts';"
-          if old in text and "from './src/server/auth.ts'" not in text:
-              text = text.replace(old, new, 1)
+          if "from './src/server/auth.ts'" not in text:
+              text = text.replace(
+                  "import { messageLogs } from './src/db/schema.ts';",
+                  "import { messageLogs } from './src/db/schema.ts';\nimport { authRequired } from './src/server/auth.ts';",
+                  1,
+              )
 
-          old = "  app.use(express.json({ limit: '50mb' }));\n  app.use('/api', dbApiRouter);"
-          new = """  app.use(express.json({ limit: '50mb' }));
+          mount = "  app.use(express.json({ limit: '50mb' }));\n  app.use('/api', dbApiRouter);"
+          secure_mount = """  app.use(express.json({ limit: '50mb' }));
 
-  // All application APIs are authenticated server-side. Public webhook callbacks
-  // and the authentication endpoints are explicitly exempted.
   app.use('/api', (req, res, next) => {
     const publicPath = req.path.startsWith('/auth/') || req.path.startsWith('/webhook/');
     if (publicPath) return next();
     return authRequired(req, res, next);
   });
   app.use('/api', dbApiRouter);"""
-          if old in text:
-              text = text.replace(old, new, 1)
+          if mount in text:
+              text = text.replace(mount, secure_mount, 1)
 
-          # Never trust a client-provided bot token. Use the server-side cached settings.
-          text = text.replace("    let cleanTok = cleanToken(token);", "    let cleanTok = '';", 1)
-
-          # Connected users: remove the silent 50-user truncation and support bounded pagination.
           old = """  app.get('/api/bot/connected-users', (req, res) => {
     res.json({
       success: true,
@@ -59,98 +54,42 @@ jobs:
     const requestedLimit = Number(req.query.limit);
     const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? Math.min(Math.floor(requestedLimit), 5000) : botUsers.length;
     const offset = Math.max(0, Number(req.query.offset) || 0);
-    res.json({
-      success: true,
-      total: botUsers.length,
-      offset,
-      limit,
-      users: botUsers.slice(offset, offset + limit)
-    });
+    res.json({ success: true, total: botUsers.length, offset, limit, users: botUsers.slice(offset, offset + limit) });
   });"""
           if old in text:
               text = text.replace(old, new, 1)
 
-          # Resolve identifiers only inside the requested platform. Never silently switch platform.
           text = text.replace(
               "  const matchedByIdAny = botUsers.find(u => u.chatId === cleaned);\n  const matchedById = matchedByIdPlatform || matchedByIdAny;",
               "  const matchedById = matchedByIdPlatform;",
               1,
           )
+          text = text.replace("    if (!matchedByUsername) {\n      matchedByUsername = findUserByUsername(withoutAt);\n    }\n", "", 1)
+          text = text.replace("    if (!matchedByPhone) {\n      matchedByPhone = findUserByPhone(normPhone);\n    }\n", "", 1)
+
           text = text.replace(
-              "    if (!matchedByUsername) {\n      matchedByUsername = findUserByUsername(withoutAt);\n    }",
-              "",
+              "    if (provider === 'none' || !provider || !token) {\n      console.log(`Simulated SMS to ${phone}:`, message);\n      isSimulated = true;\n    }",
+              "    if (provider === 'none' || !provider || !token) {\n      return res.status(503).json({ success: false, simulated: false, error: 'سرویس پیامک تنظیم نشده است؛ پیامکی ارسال نشد.' });\n    }",
               1,
           )
-          text = text.replace(
-              "    if (!matchedByPhone) {\n      matchedByPhone = findUserByPhone(normPhone);\n    }",
-              "",
-              1,
-          )
-
-          # SMS must not report a successful send when no provider is configured.
-          old = """    if (provider === 'none' || !provider || !token) {
-      console.log(`Simulated SMS to ${phone}:`, message);
-      isSimulated = true;
-    }"""
-          new = """    if (provider === 'none' || !provider || !token) {
-      return res.status(503).json({
-        success: false,
-        simulated: false,
-        error: 'سرویس پیامک تنظیم نشده است؛ پیامکی ارسال نشد.'
-      });
-    }"""
-          if old in text:
-              text = text.replace(old, new, 1)
-
           server.write_text(text)
 
-          # Customer advanced-filter pagination must reset whenever any advanced criterion changes.
           customers = Path('src/pages/Customers.tsx')
           ctext = customers.read_text()
-          old = """  React.useEffect(() => {
-    setCurrentPage(1);
-  }, [search, statusFilter]);"""
-          new = """  React.useEffect(() => {
-    setCurrentPage(1);
-  }, [search, statusFilter, minAmount, maxAmount, fromDate, toDate]);"""
-          if old in ctext:
-              ctext = ctext.replace(old, new, 1)
+          ctext = ctext.replace(
+              "  }, [search, statusFilter]);",
+              "  }, [search, statusFilter, minAmount, maxAmount, fromDate, toDate]);",
+              1,
+          )
           customers.write_text(ctext)
-
-          # Add a root-level error boundary if the application does not already have one.
-          app = Path('src/App.tsx')
-          atext = app.read_text()
-          if 'class RootErrorBoundary' not in atext:
-              atext = """import React from 'react';\n""" + atext if not atext.startswith("import React") else atext
-              boundary = r'''
-
-class RootErrorBoundary extends React.Component<React.PropsWithChildren, { hasError: boolean; message?: string }> {
-  state = { hasError: false as boolean, message: undefined as string | undefined };
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, message: error?.message };
-  }
-  componentDidCatch(error: Error) {
-    console.error('Unhandled application render error:', error);
-  }
-  render() {
-    if (!this.state.hasError) return this.props.children;
-    return <div dir="rtl" style={{ padding: 24, fontFamily: 'Tahoma, sans-serif' }}><h2>خطای غیرمنتظره در سامانه</h2><p>صفحه فعلی نتوانست نمایش داده شود.</p><button onClick={() => window.location.reload()}>بارگذاری مجدد</button>{this.state.message && <small style={{ display: 'block', marginTop: 12 }}>{this.state.message}</small>}</div>;
-  }
-}
-'''
-              # Wrap the existing root render target where the file has a default component export.
-              atext = atext + boundary
-              app.write_text(atext)
           PY
 
-      - name: Commit patched files
+      - name: Commit patch
+        shell: bash
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add server.ts src/pages/Customers.tsx src/App.tsx
-          if git diff --cached --quiet; then
-            echo 'No patch changes required.'
-          else
-            git commit -m 'fix: harden server APIs and advanced customer filtering'
-            git push
-          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add server.ts src/pages/Customers.tsx
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'fix: harden server APIs and customer advanced filters'
+          git push
