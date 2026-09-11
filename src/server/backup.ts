@@ -39,19 +39,13 @@ export interface BackupRecord {
   sizeBytes: number;
 }
 
-const defaults: BackupConfig = {
-  enabled: true,
-  intervalMinutes: DEFAULT_INTERVAL_MINUTES,
-  backupOnExit: true,
-  retentionCount: DEFAULT_RETENTION,
-};
-
-let timer: NodeJS.Timeout | null = null;
+const defaults: BackupConfig = { enabled: true, intervalMinutes: DEFAULT_INTERVAL_MINUTES, backupOnExit: true, retentionCount: DEFAULT_RETENTION };
+let heartbeatTimer: NodeJS.Timeout | null = null;
+let lastScheduledBackupAt = 0;
 let backupInProgress = false;
+let shutdownBackupStarted = false;
 
-function ensureBackupDir() {
-  fs.mkdirSync(BACKUP_DIR, { recursive: true });
-}
+function ensureBackupDir() { fs.mkdirSync(BACKUP_DIR, { recursive: true }); }
 
 function normalizeConfig(raw: any): BackupConfig {
   return {
@@ -65,8 +59,7 @@ function normalizeConfig(raw: any): BackupConfig {
 export async function getBackupConfig(): Promise<BackupConfig> {
   try {
     const rows = await db.select().from(settings);
-    const data: any = rows[0]?.data || {};
-    return normalizeConfig(data.backupSettings);
+    return normalizeConfig((rows[0]?.data as any)?.backupSettings);
   } catch (error) {
     console.warn('Backup settings could not be loaded; defaults are used.', error);
     return defaults;
@@ -74,52 +67,22 @@ export async function getBackupConfig(): Promise<BackupConfig> {
 }
 
 async function collectDatabase() {
-  const [usersRows, customersRows, contractsRows, invoicesRows, paymentsRows, messageLogsRows,
-    auditLogsRows, settingsRows, propertiesRows, areasRows, propertyImagesRows, propertyMediaRows,
-    propertyRequestsRows, propertySharesRows] = await Promise.all([
-    db.select().from(users),
-    db.select().from(customers),
-    db.select().from(contracts),
-    db.select().from(invoices),
-    db.select().from(payments),
-    db.select().from(messageLogs),
-    db.select().from(auditLogs),
-    db.select().from(settings),
-    db.select().from(properties),
-    db.select().from(areas),
-    db.select().from(propertyImages),
-    db.select().from(propertyMedia),
-    db.select().from(propertyRequests),
-    db.select().from(propertyShares),
+  const [usersRows, customersRows, contractsRows, invoicesRows, paymentsRows, messageLogsRows, auditLogsRows, settingsRows, propertiesRows, areasRows, propertyImagesRows, propertyMediaRows, propertyRequestsRows, propertySharesRows] = await Promise.all([
+    db.select().from(users), db.select().from(customers), db.select().from(contracts), db.select().from(invoices),
+    db.select().from(payments), db.select().from(messageLogs), db.select().from(auditLogs), db.select().from(settings),
+    db.select().from(properties), db.select().from(areas), db.select().from(propertyImages), db.select().from(propertyMedia),
+    db.select().from(propertyRequests), db.select().from(propertyShares),
   ]);
-
-  return {
-    users: usersRows,
-    customers: customersRows,
-    contracts: contractsRows,
-    invoices: invoicesRows,
-    payments: paymentsRows,
-    messageLogs: messageLogsRows,
-    auditLogs: auditLogsRows,
-    settings: settingsRows,
-    properties: propertiesRows,
-    areas: areasRows,
-    propertyImages: propertyImagesRows,
-    propertyMedia: propertyMediaRows,
-    propertyRequests: propertyRequestsRows,
-    propertyShares: propertySharesRows,
-  };
+  return { users: usersRows, customers: customersRows, contracts: contractsRows, invoices: invoicesRows, payments: paymentsRows, messageLogs: messageLogsRows, auditLogs: auditLogsRows, settings: settingsRows, properties: propertiesRows, areas: areasRows, propertyImages: propertyImagesRows, propertyMedia: propertyMediaRows, propertyRequests: propertyRequestsRows, propertyShares: propertySharesRows };
 }
 
 async function collectBotFiles() {
   const files: Record<string, unknown> = {};
   for (const name of BOT_FILES) {
-    const filePath = path.join(process.cwd(), name);
     try {
+      const filePath = path.join(process.cwd(), name);
       if (fs.existsSync(filePath)) files[name] = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    } catch (error) {
-      console.warn(`Could not include ${name} in backup.`, error);
-    }
+    } catch (error) { console.warn(`Could not include ${name} in backup.`, error); }
   }
   return files;
 }
@@ -130,41 +93,27 @@ export async function createBackup(reason = 'manual'): Promise<BackupRecord | nu
   try {
     ensureBackupDir();
     const createdAt = Date.now();
-    const payload = {
-      format: 'real-estate-consultant-backup',
-      version: 1,
-      reason,
-      createdAt,
-      database: await collectDatabase(),
-      botFiles: await collectBotFiles(),
-    };
-
+    const payload = { format: 'real-estate-consultant-backup', version: 1, reason, createdAt, database: await collectDatabase(), botFiles: await collectBotFiles() };
     const compressed = await gzip(Buffer.from(JSON.stringify(payload), 'utf8'), { level: 6 });
     const stamp = new Date(createdAt).toISOString().replace(/[:.]/g, '-');
     const fileName = `backup-${stamp}-${reason}.json.gz`;
     const tempPath = path.join(BACKUP_DIR, `.${fileName}.tmp`);
     const finalPath = path.join(BACKUP_DIR, fileName);
-
     fs.writeFileSync(tempPath, compressed);
     fs.renameSync(tempPath, finalPath);
     return { fileName, createdAt, sizeBytes: compressed.byteLength };
   } catch (error) {
     console.error('Backup creation failed:', error);
     return null;
-  } finally {
-    backupInProgress = false;
-  }
+  } finally { backupInProgress = false; }
 }
 
 export function listBackups(): BackupRecord[] {
   ensureBackupDir();
-  return fs.readdirSync(BACKUP_DIR)
-    .filter(name => /^backup-.*\.json\.gz$/.test(name))
-    .map(fileName => {
-      const stat = fs.statSync(path.join(BACKUP_DIR, fileName));
-      return { fileName, createdAt: stat.mtimeMs, sizeBytes: stat.size };
-    })
-    .sort((a, b) => b.createdAt - a.createdAt);
+  return fs.readdirSync(BACKUP_DIR).filter(name => /^backup-.*\.json\.gz$/.test(name)).map(fileName => {
+    const stat = fs.statSync(path.join(BACKUP_DIR, fileName));
+    return { fileName, createdAt: stat.mtimeMs, sizeBytes: stat.size };
+  }).sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export function getBackupPath(fileName: string): string | null {
@@ -175,8 +124,7 @@ export function getBackupPath(fileName: string): string | null {
 }
 
 export function pruneBackups(retentionCount: number) {
-  const backups = listBackups();
-  for (const backup of backups.slice(Math.max(1, retentionCount))) {
+  for (const backup of listBackups().slice(Math.max(1, retentionCount))) {
     try { fs.unlinkSync(path.join(BACKUP_DIR, backup.fileName)); } catch (error) { console.warn('Could not prune backup', backup.fileName, error); }
   }
 }
@@ -185,6 +133,7 @@ export async function runScheduledBackup() {
   const config = await getBackupConfig();
   if (!config.enabled) return null;
   const result = await createBackup('scheduled');
+  lastScheduledBackupAt = Date.now();
   pruneBackups(config.retentionCount);
   return result;
 }
@@ -198,25 +147,33 @@ export async function runExitBackup() {
 }
 
 export async function startBackupScheduler() {
-  if (timer) clearInterval(timer);
+  stopBackupScheduler();
   const config = await getBackupConfig();
   if (!config.enabled) return;
-
-  timer = setInterval(() => {
-    void runScheduledBackup();
-  }, config.intervalMinutes * 60_000);
-  timer.unref?.();
-
-  // Ensure there is at least one recent backup after startup.
+  lastScheduledBackupAt = listBackups()[0]?.createdAt || 0;
+  heartbeatTimer = setInterval(async () => {
+    try {
+      const current = await getBackupConfig();
+      if (current.enabled && Date.now() - lastScheduledBackupAt >= current.intervalMinutes * 60_000) await runScheduledBackup();
+    } catch (error) { console.warn('Backup scheduler heartbeat failed:', error); }
+  }, 60_000);
+  heartbeatTimer.unref?.();
   if (listBackups().length === 0) void createBackup('startup');
 }
 
-export function stopBackupScheduler() {
-  if (timer) clearInterval(timer);
-  timer = null;
-}
+export function stopBackupScheduler() { if (heartbeatTimer) clearInterval(heartbeatTimer); heartbeatTimer = null; }
+export function backupDirectory() { ensureBackupDir(); return BACKUP_DIR; }
 
-export function backupDirectory() {
-  ensureBackupDir();
-  return BACKUP_DIR;
+export function installBackupShutdownHooks() {
+  const shutdown = async (signal: string) => {
+    if (shutdownBackupStarted) return;
+    shutdownBackupStarted = true;
+    stopBackupScheduler();
+    try {
+      const result = await runExitBackup();
+      if (result) console.log(`Backup created before ${signal}: ${result.fileName}`);
+    } finally { process.exit(0); }
+  };
+  process.once('SIGINT', () => void shutdown('SIGINT'));
+  process.once('SIGTERM', () => void shutdown('SIGTERM'));
 }
