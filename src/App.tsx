@@ -20,18 +20,19 @@ import Help from './pages/Help';
 import Users from './pages/Users';
 import Properties from './pages/Properties';
 import Matching from './pages/Matching';
-import { doAutoBackup, checkAndRestoreAutoBackup } from './utils/BackupManager';
+import { doAutoBackup, checkAndRestoreAutoBackup, startAutoBackupScheduler, stopAutoBackupScheduler } from './utils/BackupManager';
 import { useAutoMessages } from './hooks/useAutoMessages';
 
 export default function App() {
   useAutoMessages();
   useEffect(() => {
-    checkAndRestoreAutoBackup();
-    const handleVisibilityChange = () => { if (document.visibilityState === 'hidden') doAutoBackup(); if (document.visibilityState === 'visible' && hasActiveSession()) touchSession(); };
-    const handleBeforeUnload = () => { doAutoBackup(); };
+    void checkAndRestoreAutoBackup();
+    startAutoBackupScheduler();
+    const handleVisibilityChange = () => { if (document.visibilityState === 'hidden') void doAutoBackup(); if (document.visibilityState === 'visible' && hasActiveSession()) touchSession(); };
+    const handleBeforeUnload = () => { void doAutoBackup(); };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => { document.removeEventListener('visibilitychange', handleVisibilityChange); window.removeEventListener('beforeunload', handleBeforeUnload); };
+    return () => { stopAutoBackupScheduler(); document.removeEventListener('visibilitychange', handleVisibilityChange); window.removeEventListener('beforeunload', handleBeforeUnload); };
   }, []);
   useEffect(() => {
     let lastTouch = 0;
