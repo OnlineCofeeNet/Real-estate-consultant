@@ -11,6 +11,7 @@ import Customers from './pages/Customers';
 import Contracts from './pages/Contracts';
 import Finance from './pages/Finance';
 import Properties from './pages/Properties';
+import PropertyRequests from './pages/PropertyRequests';
 import Settings from './pages/Settings';
 import Help from './pages/Help';
 import { doAutoBackup, checkAndRestoreAutoBackup } from './utils/BackupManager';
@@ -44,6 +45,7 @@ export default function App() {
     <Route element={<ProtectedRoute permission="finance" />}><Route path="finance" element={<Finance />} /></Route>
     <Route element={<ProtectedRoute permission="customers" />}><Route path="customers" element={<Customers />} /></Route>
     <Route element={<ProtectedRoute permission="properties" />}><Route path="properties" element={<Properties />} /></Route>
+    <Route element={<ProtectedRoute permission="properties" />}><Route path="property-requests" element={<PropertyRequests />} /></Route>
     <Route element={<ProtectedRoute permission="settings" />}><Route path="settings" element={<Settings />} /></Route>
     <Route path="help" element={<Help />} />
   </Route></Route></Routes></BrowserRouter>;
