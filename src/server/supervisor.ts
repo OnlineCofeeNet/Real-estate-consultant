@@ -8,8 +8,19 @@ const serverArgs = isProduction
   ? [path.join(process.cwd(), 'dist/server.cjs')]
   : [path.join(process.cwd(), 'node_modules/tsx/dist/cli.mjs'), path.join(process.cwd(), 'server.ts')];
 
+const guardModule = isProduction
+  ? path.join(process.cwd(), 'dist/server-api-guard.mjs')
+  : path.join(process.cwd(), 'src/server/api-guard.mjs');
+
+const env = { ...process.env };
+const existingNodeOptions = env.NODE_OPTIONS ? `${env.NODE_OPTIONS} ` : '';
+env.NODE_OPTIONS = `${existingNodeOptions}--import=${guardModule}`;
+
+env.PORT = env.PORT || '3000';
+env.HOST = env.HOST || '0.0.0.0';
+
 let shuttingDown = false;
-const child = spawn(serverCommand, serverArgs, { stdio: 'inherit', env: process.env });
+const child = spawn(serverCommand, serverArgs, { stdio: 'inherit', env });
 
 void startBackupScheduler();
 
