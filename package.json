@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate --config=src/db/drizzle.config.ts",
     "db:push": "drizzle-kit push --config=src/db/drizzle.config.ts",
+    "db:check": "tsx scripts/check-db.ts",
     "db:studio": "drizzle-kit studio --config=src/db/drizzle.config.ts"
   },
   "dependencies": {
