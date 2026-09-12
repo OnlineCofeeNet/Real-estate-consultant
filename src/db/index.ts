@@ -67,6 +67,28 @@ export const db: any = useMockDatabase
   ? createMockDatabase()
   : drizzle(createPool()!, { schema });
 
+export async function checkDatabaseHealth(): Promise<{ ok: boolean; latencyMs: number; mode: 'postgres' | 'mock'; error?: string }> {
+  if (useMockDatabase) {
+    return { ok: true, latencyMs: 0, mode: 'mock' };
+  }
+
+  const pool = createPool();
+  const started = Date.now();
+  try {
+    await pool!.query('SELECT 1');
+    return { ok: true, latencyMs: Date.now() - started, mode: 'postgres' };
+  } catch (error: any) {
+    return { ok: false, latencyMs: Date.now() - started, mode: 'postgres', error: error?.message || 'PostgreSQL health check failed' };
+  }
+}
+
+export async function assertDatabaseHealth(): Promise<void> {
+  const result = await checkDatabaseHealth();
+  if (!result.ok) {
+    throw new Error(`PostgreSQL health check failed: ${result.error || 'unknown database error'}`);
+  }
+}
+
 if (useMockDatabase) {
   console.warn('[DEV ONLY] DB_MOCK=true: database operations are mocked and are not persisted.');
 }
