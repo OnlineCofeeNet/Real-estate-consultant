@@ -1,7 +1,76 @@
-/** @license SPDX-License-Identifier: Apache-2.0 */
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import React, { useEffect } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom'; import { Toaster } from 'react-hot-toast';
-import { useLiveQuery } from '@/src/db/db'; import { db } from './db/db'; import Layout from './components/Layout'; import { AuthGate, ProtectedRoute } from './components/AuthGate'; import { hasActiveSession, touchSession } from './services/auth';
-import Dashboard from './pages/Dashboard'; import Customers from './pages/Customers'; import Contracts from './pages/Contracts'; import Finance from './pages/Finance'; import Settings from './pages/Settings'; import Backup from './pages/Backup'; import Help from './pages/Help'; import Users from './pages/Users'; import Properties from './pages/Properties'; import Matching from './pages/Matching'; import PropertyRequests from './pages/PropertyRequests'; import PropertyIntake from './pages/PropertyIntake';
-import { doAutoBackup, checkAndRestoreAutoBackup, startAutoBackupScheduler, stopAutoBackupScheduler } from './utils/BackupManager'; import { useAutoMessages } from './hooks/useAutoMessages';
-export default function App(){useAutoMessages();useEffect(()=>{void checkAndRestoreAutoBackup();startAutoBackupScheduler();const handleVisibilityChange=()=>{if(document.visibilityState==='hidden')void doAutoBackup();if(document.visibilityState==='visible'&&hasActiveSession())touchSession()};const handleBeforeUnload=()=>{void doAutoBackup()};document.addEventListener('visibilitychange',handleVisibilityChange);window.addEventListener('beforeunload',handleBeforeUnload);return()=>{stopAutoBackupScheduler();document.removeEventListener('visibilitychange',handleVisibilityChange);window.removeEventListener('beforeunload',handleBeforeUnload)}},[]);useEffect(()=>{let lastTouch=0;const events=['pointerdown','keydown','touchstart','scroll'];const h=()=>{const now=Date.now();if(now-lastTouch<60000)return;lastTouch=now;if(hasActiveSession())touchSession()};events.forEach(e=>window.addEventListener(e,h,{passive:true}));return()=>events.forEach(e=>window.removeEventListener(e,h))},[]);const settings=useLiveQuery(()=>db.settings.get(1));useEffect(()=>{if(settings)document.body.className=`${settings.theme}-theme ${settings.font}-font ${settings.darkMode?'dark-mode':''}`},[settings]);return <BrowserRouter><Toaster position="top-center"/><Routes><Route element={<AuthGate/>}><Route element={<Layout/>}><Route index element={<Dashboard/>}/><Route element={<ProtectedRoute permission="contracts"/>}><Route path="contracts" element={<Contracts/>}/></Route><Route element={<ProtectedRoute permission="finance"/>}><Route path="finance" element={<Finance/>}/></Route><Route element={<ProtectedRoute permission="customers"/>}><Route path="customers" element={<Customers/>}/></Route><Route element={<ProtectedRoute permission="properties"/>}><Route path="properties" element={<Properties/>}/><Route path="property-new" element={<PropertyIntake/>}/><Route path="property-requests" element={<PropertyRequests/>}/><Route path="matching" element={<Matching/>}/></Route><Route element={<ProtectedRoute permission="settings"/>}><Route path="settings" element={<Settings/>}/><Route path="backup" element={<Backup/>}/></Route><Route element={<ProtectedRoute permission="users"/>}><Route path="users" element={<Users/>}/></Route><Route path="help" element={<Help/>}/></Route></Route></Routes></BrowserRouter>}
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from './db/db';
+import Layout from './components/Layout';
+import Dashboard from './pages/Dashboard';
+import Customers from './pages/Customers';
+import Contracts from './pages/Contracts';
+import Settings from './pages/Settings';
+import Help from './pages/Help';
+import SmartMatching from './pages/SmartMatching';
+import Accounting from './pages/Accounting';
+import Agents from './pages/Agents';
+import { doAutoBackup, checkAndRestoreAutoBackup } from './utils/BackupManager';
+import { useAutoMessages } from './hooks/useAutoMessages';
+
+export default function App() {
+  useAutoMessages();
+
+  useEffect(() => {
+    // On load, check for auto backup
+    checkAndRestoreAutoBackup();
+
+    // On exit / hide, do auto backup
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        doAutoBackup();
+      }
+    };
+    
+    // Fallback for beforeunload
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      doAutoBackup();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
+
+  const settings = useLiveQuery(() => db.settings.get(1));
+
+  useEffect(() => {
+    if (settings) {
+      document.body.className = `${settings.theme}-theme ${settings.font}-font ${settings.darkMode ? 'dark-mode' : ''}`;
+    }
+  }, [settings]);
+
+  return (
+    <BrowserRouter>
+      <Toaster position="top-center" />
+      <Routes>
+        <Route path="/" element={<Layout />}>
+          <Route index element={<Dashboard />} />
+          <Route path="contracts" element={<Contracts />} />
+          <Route path="customers" element={<Customers />} />
+          <Route path="agents" element={<Agents />} />
+          <Route path="accounting" element={<Accounting />} />
+          <Route path="smart-matching" element={<SmartMatching />} />
+          <Route path="settings" element={<Settings />} />
+          <Route path="help" element={<Help />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
+}

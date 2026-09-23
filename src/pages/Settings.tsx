@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { useLiveQuery } from '@/src/db/db';
-import { changePassword, getSession } from '../services/auth';
+import { Link } from 'react-router-dom';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
 import toast from 'react-hot-toast';
 import axios from 'axios';
@@ -30,9 +30,10 @@ import {
   ExternalLink,
   Printer,
   MessageCircle,
-  Link2
+  Link2,
+  UserCheck
 } from 'lucide-react';
-import type { Settings as SettingsType } from '../types';
+import type { Settings as SettingsType, AgentProfile } from '../types';
 import { IRANIAN_BANKS, getAgencySignature, toPersianDigits, toEnglishDigits, formatTemplateMessage } from '../utils/format';
 
 const defaultSettings: SettingsType = {
@@ -62,11 +63,6 @@ const defaultSettings: SettingsType = {
   paperSize: 'a4',
   darkMode: false,
   autoSendInvoices: false,
-  smsProvider: 'none',
-  smsToken: '',
-  smsLineNumber: '',
-  autoSendSmsInvoice: false,
-  smsTemplateText: '',
   autoSendChequeReminder: false,
   autoSendRentReminder: false,
   baleToken: '',
@@ -106,6 +102,7 @@ const Settings = () => {
     appearance: false,
     invoiceMessages: false,
     messengers: false,
+    agents: false,
     defaultTexts: false,
   });
 
@@ -209,6 +206,7 @@ const Settings = () => {
       appearance: true,
       invoiceMessages: true,
       messengers: true,
+      agents: true,
       defaultTexts: true,
     });
   };
@@ -221,6 +219,7 @@ const Settings = () => {
       appearance: false,
       invoiceMessages: false,
       messengers: false,
+      agents: false,
       defaultTexts: false,
     });
   };
@@ -1407,12 +1406,7 @@ const Settings = () => {
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input type="checkbox" className="sr-only peer" checked={Boolean(formData.autoSendInvoices)} onChange={e => setFormData({...formData, autoSendInvoices: e.target.checked})} />
                   <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
-                  <span className="mr-3 text-sm font-bold text-slate-700">ارسال خودکار فاکتور به پیام‌رسان‌ها</span>
-                </label>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" className="sr-only peer" checked={Boolean(formData.autoSendSmsInvoice)} onChange={e => setFormData({...formData, autoSendSmsInvoice: e.target.checked})} />
-                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                  <span className="mr-3 text-sm font-bold text-slate-700">ارسال خودکار فاکتور با پیامک (SMS)</span>
+                  <span className="mr-3 text-sm font-bold text-slate-700">ارسال خودکار فاکتور پس از ثبت قرارداد</span>
                 </label>
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input type="checkbox" className="sr-only peer" checked={Boolean(formData.autoSendChequeReminder)} onChange={e => setFormData({...formData, autoSendChequeReminder: e.target.checked})} />
@@ -1429,7 +1423,223 @@ const Settings = () => {
           )}
         </div>
 
-        {/* ۷. متون پیام‌های پیش‌فرض (کشویی) */}
+        {/* ۷. مدیریت مشاورین و مباشرین املاک (کشویی) */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden transition-all">
+          <button
+            type="button"
+            onClick={() => toggleSection('agents')}
+            className="w-full p-5 flex items-center justify-between text-right bg-slate-50/70 hover:bg-slate-100/70 transition-colors cursor-pointer border-b border-slate-100"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+                <UserCheck size={22} />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800 text-base">مدیریت مشاورین و مباشرین املاک (Agents)</h3>
+                <p className="text-xs text-slate-500 mt-0.5">تعریف کادر مشاوره، شماره‌های تماس، شناسه‌های پیام‌رسان جهت ارسال مستقیم فایل‌های ملکی منطبق</p>
+              </div>
+            </div>
+            <div className="text-slate-400 p-1">
+              {openSections.agents ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </div>
+          </button>
+
+          {openSections.agents && (
+            <div className="p-6 space-y-6 animate-in slide-in-from-top-2 duration-200">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-purple-50/70 border border-purple-200 p-4 rounded-2xl">
+                <div>
+                  <h4 className="font-bold text-sm text-purple-900 flex items-center gap-2">
+                    <UserCheck size={18} className="text-purple-700" />
+                    لیست مشاورین و مباشرین فعال املاک
+                  </h4>
+                  <p className="text-xs text-slate-600 mt-1">
+                    مشاورین ثبت‌شده در این بخش، می‌توانند در اتاق «تطبیق هوشمند املاک»، فایل‌های ملکی جدید و هماهنگی‌های بازدید را به صورت مستقیم در پیام‌رسان دریافت نمایند.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
+                  <Link
+                    to="/agents"
+                    className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs"
+                  >
+                    <UserCheck size={16} />
+                    صفحه جامع تعریف و مدیریت مباشرین
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newAgent: AgentProfile = {
+                        id: 'agent_' + Date.now(),
+                        firstName: '',
+                        lastName: '',
+                        fullName: '',
+                        phone: '',
+                        guildCode: '',
+                        licenseCode: '',
+                        commissionPercent: 30,
+                        description: '',
+                        telegramId: '',
+                        baleId: '',
+                        rubikaId: '',
+                        status: 'active',
+                        createdAt: Date.now()
+                      };
+                      const currentAgents = formData.agents || [];
+                      setFormData({
+                        ...formData,
+                        agents: [...currentAgents, newAgent]
+                      });
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs"
+                  >
+                    <Plus size={16} />
+                    افزودن سریع مباشر
+                  </button>
+                </div>
+              </div>
+
+              {(!formData.agents || formData.agents.length === 0) ? (
+                <div className="text-center py-10 border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 text-xs space-y-2">
+                  <UserCheck size={32} className="mx-auto text-slate-300" />
+                  <p>هنوز مشاور یا مباشری ثبت نشده است.</p>
+                  <p className="text-[11px] text-slate-400">با کلیک روی دکمه «افزودن مشاور / مباشر جدید» می‌توانید اعضای تیم فروش و اجاره را ثبت کنید.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {formData.agents.map((agent, index) => (
+                    <div key={agent.id || index} className="p-4.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-3 relative hover:border-purple-300 transition-all">
+                      <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                        <span className="text-xs font-black text-purple-700 flex items-center gap-1.5">
+                          <span className="w-5 h-5 rounded-full bg-purple-200 text-purple-800 text-[10px] flex items-center justify-center font-mono font-bold">
+                            {index + 1}
+                          </span>
+                          مشاور {agent.fullName || 'جدید'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = [...(formData.agents || [])];
+                            updated.splice(index, 1);
+                            setFormData({ ...formData, agents: updated });
+                          }}
+                          className="text-red-500 hover:text-red-700 text-xs font-bold flex items-center gap-1 transition-colors"
+                        >
+                          <Trash2 size={15} />
+                          حذف مشاور
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                        <div>
+                          <label className="block text-slate-600 font-bold mb-1">نام و نام خانوادگی مشاور *</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="مثال: علیرضا محمدی"
+                            value={agent.fullName}
+                            onChange={e => {
+                              const updated = [...(formData.agents || [])];
+                              updated[index] = { ...updated[index], fullName: e.target.value };
+                              setFormData({ ...formData, agents: updated });
+                            }}
+                            className="w-full p-2.5 rounded-xl border border-slate-200 bg-white focus:outline-purple-500 text-xs"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-slate-600 font-bold mb-1">شماره همراه تماس *</label>
+                          <input
+                            type="text"
+                            required
+                            dir="ltr"
+                            placeholder="0912..."
+                            value={agent.phone}
+                            onChange={e => {
+                              const updated = [...(formData.agents || [])];
+                              updated[index] = { ...updated[index], phone: toEnglishDigits(e.target.value) };
+                              setFormData({ ...formData, agents: updated });
+                            }}
+                            className="w-full p-2.5 rounded-xl border border-slate-200 bg-white focus:outline-purple-500 text-xs font-mono"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-slate-600 font-bold mb-1">کد صنفی / پروانه مباشر</label>
+                          <input
+                            type="text"
+                            placeholder="اختیاری..."
+                            value={agent.guildCode || ''}
+                            onChange={e => {
+                              const updated = [...(formData.agents || [])];
+                              updated[index] = { ...updated[index], guildCode: e.target.value };
+                              setFormData({ ...formData, agents: updated });
+                            }}
+                            className="w-full p-2.5 rounded-xl border border-slate-200 bg-white focus:outline-purple-500 text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      {/* شناسه‌های پیام‌رسان مشاور جهت ارسال مستقیم و فوری فایل‌ها */}
+                      <div className="pt-2 border-t border-slate-200">
+                        <span className="text-[11px] font-bold text-slate-500 block mb-2">
+                          شناسه‌های پیام‌رسان مشاور (جهت ارسال خودکار آگهی‌ها و مشخصات بازدید):
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                          <div>
+                            <label className="block text-[10px] font-bold text-emerald-600 mb-1">Chat ID بله</label>
+                            <input
+                              type="text"
+                              dir="ltr"
+                              placeholder="عددی یا شماره موبایل"
+                              value={agent.baleId || ''}
+                              onChange={e => {
+                                const updated = [...(formData.agents || [])];
+                                updated[index] = { ...updated[index], baleId: toEnglishDigits(e.target.value) };
+                                setFormData({ ...formData, agents: updated });
+                              }}
+                              className="w-full p-2 rounded-lg border border-slate-200 bg-white text-xs font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-blue-600 mb-1">Chat ID تلگرام</label>
+                            <input
+                              type="text"
+                              dir="ltr"
+                              placeholder="عددی مانند 123456789"
+                              value={agent.telegramId || ''}
+                              onChange={e => {
+                                const updated = [...(formData.agents || [])];
+                                updated[index] = { ...updated[index], telegramId: toEnglishDigits(e.target.value) };
+                                setFormData({ ...formData, agents: updated });
+                              }}
+                              className="w-full p-2 rounded-lg border border-slate-200 bg-white text-xs font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-amber-600 mb-1">شناسه روبیکا</label>
+                            <input
+                              type="text"
+                              dir="ltr"
+                              placeholder="@username"
+                              value={agent.rubikaId || ''}
+                              onChange={e => {
+                                const updated = [...(formData.agents || [])];
+                                updated[index] = { ...updated[index], rubikaId: toEnglishDigits(e.target.value) };
+                                setFormData({ ...formData, agents: updated });
+                              }}
+                              className="w-full p-2 rounded-lg border border-slate-200 bg-white text-xs font-mono"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ۸. متون پیام‌های پیش‌فرض (کشویی) */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden transition-all">
           <button
             type="button"

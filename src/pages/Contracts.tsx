@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { db } from '../db/db';
 import toast from 'react-hot-toast';
-import { useLiveQuery } from '@/src/db/db';
+import { useLiveQuery } from 'dexie-react-hooks';
 import moment from 'moment-jalaali';
 import { numberToWords } from '../utils/helpers';
 import { 
@@ -13,11 +13,13 @@ import {
   createInvoiceMessengerMessage
 } from '../utils/format';
 import type { Customer, Contract } from '../types';
+import { createContractJournalEntry } from '../utils/accountingService';
 import { 
   Printer, Save, Calculator, CheckCircle2, Eye, Calendar, 
   CalendarCheck, Clock, Plus, Trash2, ArrowRight, FileText, 
   Search, Filter, Building2, User, Check, CreditCard, Banknote,
-  Send, RotateCw, RefreshCw, X, AlertCircle, Share2, CalendarPlus, Download
+  Send, RotateCw, RefreshCw, X, AlertCircle, Share2, CalendarPlus, Download,
+  UserCheck, Percent, HelpCircle, ChevronDown, ChevronUp
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -56,6 +58,10 @@ const initialContractState: Partial<Contract> = {
   party1ChequeDate: '',
   party2ChequeDate: '',
   rentDueDay: 1,
+  agentName: '',
+  agentPhone: '',
+  agentCommissionPercent: undefined,
+  agentShareAmount: 0,
   status: 'draft'
 };
 
@@ -102,55 +108,46 @@ const Contracts = () => {
   const [listSearch, setListSearch] = useState('');
   const [listFilter, setListFilter] = useState<'all' | 'rent' | 'sale' | 'cheque'>('all');
 
-  React.useEffect(() => {
-    setCurrentPage(1);
-  }, [listSearch, listFilter]);
+  // Optional Agent / Facilitator (مباشر قرارداد)
+  const [showAgentSection, setShowAgentSection] = useState(false);
+
+  // Commission Calculator state
+  const [customCommissionRate, setCustomCommissionRate] = useState<number | ''>('');
+  const [customTaxRate, setCustomTaxRate] = useState<number | ''>('');
 
   const calculateTotal = () => {
     let commission = 0;
+    const effectiveCommissionRate = customCommissionRate !== '' ? Number(customCommissionRate) : (settings?.commissionRate || 1);
+    const effectiveTaxRate = customTaxRate !== '' ? Number(customTaxRate) : (settings?.taxRate || 9);
+
     if (contractData.type === 'sale') {
-      commission = ((contractData.price || 0) * (settings?.commissionRate || 1)) / 100;
+      // فروش: تعرفه قانونی نرخ کمیسیون از ارزش کل معامله
+      commission = Math.round(((contractData.price || 0) * effectiveCommissionRate) / 100);
     } else {
-      // فرمول رایج کمیسیون رهن و اجاره: ۲۵٪ (یک چهارم) مجموع اجاره‌بها و معادل اجاره‌ی رهن (هر ۱ میلیون = ۳۰ هزار تومان یا ۳٪)
+      // فرمول قانونی رهن و اجاره: ۲۵٪ (یک چهارم) مجموع اجاره‌بها و معادل اجاره‌ی رهن (هر ۱ میلیون = ۳۰ هزار تومان یا ۳٪)
       const equivalentRent = (contractData.rent || 0) + ((contractData.price || 0) * 0.03);
-      commission = equivalentRent * 0.25;
+      commission = Math.round(equivalentRent * 0.25);
     }
     
-    const tax = (commission * (settings?.taxRate || 9)) / 100;
+    const tax = Math.round((commission * effectiveTaxRate) / 100);
     const total = commission + tax;
     
+    // سهم مباشر / مشاور معامله در صورت انتخاب
+    let agentShareAmount = 0;
+    if (contractData.agentName && contractData.agentCommissionPercent) {
+      agentShareAmount = Math.round((commission * Number(contractData.agentCommissionPercent)) / 100);
+    }
+
     setContractData({
       ...contractData,
       commission,
       tax,
-      totalPayable: total
+      totalPayable: total,
+      agentShareAmount
     });
     
-    toast.success('محاسبات انجام شد');
+    toast.success('محاسبه قانونی کمیسیون و مالیات انجام شد');
     setStep(3);
-  };
-
-  const sendAutoSms = async (contract: Partial<Contract>) => {
-    if (!settings?.autoSendSmsInvoice || !settings?.smsProvider || settings.smsProvider === 'none') return;
-    try {
-      const amount = contract.totalPayable || 0;
-      const tpl = settings.smsTemplateText || 'فاکتور شماره {contract} صادر شد. مبلغ قابل پرداخت: {amount} تومان.';
-      
-      if (contract.party1?.phone) {
-        const msg1 = tpl
-          .replace('{name}', contract.party1.fullName || '')
-          .replace('{contract}', contract.contractNumber || '')
-          .replace('{amount}', toPersianDigits(amount.toString()));
-        axios.post('/api/bot/send-sms', { phone: contract.party1.phone, message: msg1 }).catch(()=>console.log('sms fail'));
-      }
-      if (contract.party2?.phone) {
-        const msg2 = tpl
-          .replace('{name}', contract.party2.fullName || '')
-          .replace('{contract}', contract.contractNumber || '')
-          .replace('{amount}', toPersianDigits(amount.toString()));
-        axios.post('/api/bot/send-sms', { phone: contract.party2.phone, message: msg2 }).catch(()=>console.log('sms fail'));
-      }
-    } catch(e) {}
   };
 
   const handleSave = async () => {
@@ -177,66 +174,55 @@ const Contracts = () => {
         status: 'completed',
         createdAt: Date.now()
       } as Contract);
-
-      // Create invoices for Finance page
-      const invTotal = (contractData.totalPayable || 0) / 2;
-      const t = Date.now();
-      const p1InvoiceId = await db.invoices.add({
-        invoiceNumber: `INV-${Date.now()}-1`,
-        contractId: newId,
-        contractNumber: contractData.contractNumber,
-        customerId: contractData.party1?.id,
-        customerName: contractData.party1?.fullName || '',
-        customerPhone: contractData.party1?.phone || '',
-        partyRole: contractData.party1Role || '',
-        subtotal: (contractData.commission || 0) / 2,
-        tax: (contractData.tax || 0) / 2,
-        total: invTotal,
-        paidAmount: invTotal,
-        status: 'paid',
-        issuedAt: t,
-        dueDate: contractData.date
-      });
-      await db.payments.add({
-        invoiceId: p1InvoiceId,
-        contractId: newId,
-        amount: invTotal,
-        method: contractData.party1PaymentMethod as any || 'cash',
-        status: 'completed',
-        chequeDate: contractData.party1ChequeDate,
-        paidAt: t,
-        createdAt: t
-      });
-
-      const p2InvoiceId = await db.invoices.add({
-        invoiceNumber: `INV-${Date.now()}-2`,
-        contractId: newId,
-        contractNumber: contractData.contractNumber,
-        customerId: contractData.party2?.id,
-        customerName: contractData.party2?.fullName || '',
-        customerPhone: contractData.party2?.phone || '',
-        partyRole: contractData.party2Role || '',
-        subtotal: (contractData.commission || 0) / 2,
-        tax: (contractData.tax || 0) / 2,
-        total: invTotal,
-        paidAmount: invTotal,
-        status: 'paid',
-        issuedAt: t,
-        dueDate: contractData.date
-      });
-      await db.payments.add({
-        invoiceId: p2InvoiceId,
-        contractId: newId,
-        amount: invTotal,
-        method: contractData.party2PaymentMethod as any || 'cash',
-        status: 'completed',
-        chequeDate: contractData.party2ChequeDate,
-        paidAt: t,
-        createdAt: t
-      });
       
+  const sendAutoSms = async (contract: Partial<Contract>) => {
+    if (!settings?.autoSendSmsInvoice || !settings?.smsProvider || settings.smsProvider === 'none') return;
+    try {
+      const amount = contract.totalPayable || 0;
+      const tpl = settings.smsTemplateText || 'فاکتور شماره {contract} صادر شد. مبلغ قابل پرداخت: {amount} تومان.';
+      
+      if (contract.party1?.phone) {
+        const msg1 = tpl
+          .replace('{name}', contract.party1.fullName || '')
+          .replace('{contract}', contract.contractNumber || '')
+          .replace('{amount}', toPersianDigits(amount.toString()));
+        axios.post('/api/bot/send-sms', { phone: contract.party1.phone, message: msg1 }).catch(()=>console.log('sms fail'));
+      }
+      if (contract.party2?.phone) {
+        const msg2 = tpl
+          .replace('{name}', contract.party2.fullName || '')
+          .replace('{contract}', contract.contractNumber || '')
+          .replace('{amount}', toPersianDigits(amount.toString()));
+        axios.post('/api/bot/send-sms', { phone: contract.party2.phone, message: msg2 }).catch(()=>console.log('sms fail'));
+      }
+    } catch(e) {}
+  };
+
       toast.success('قرارداد با موفقیت ثبت شد');
       sendAutoSms({ ...contractData, totalPayable: (contractData.commission || 0) + (contractData.tax || 0) });
+
+      // Automatically issue balanced double-entry accounting voucher
+      try {
+        await createContractJournalEntry({
+          contractNumber: contractData.contractNumber || String(newId),
+          date: contractData.date || defaultStartDate,
+          type: contractData.type || 'sale',
+          commission: contractData.commission || 0,
+          tax: contractData.tax || 0,
+          totalPayable: (contractData.commission || 0) + (contractData.tax || 0),
+          party1PaymentMethod: contractData.party1PaymentMethod,
+          party2PaymentMethod: contractData.party2PaymentMethod,
+          party1Name: contractData.party1?.fullName,
+          party2Name: contractData.party2?.fullName,
+          agentName: contractData.agentName,
+          agentPhone: contractData.agentPhone,
+          agentLicenseCode: contractData.agentLicenseCode,
+          agentCommissionPercent: contractData.agentCommissionPercent,
+          agentShareAmount: contractData.agentShareAmount
+        });
+      } catch (accErr: any) {
+        console.warn('Accounting voucher notice:', accErr.message);
+      }
 
       // Update tenant in customers collection for 1-year automation
       if (contractData.type === 'rent') {
@@ -463,8 +449,6 @@ const Contracts = () => {
         });
       }
 
-      sendAutoSms({ ...renewalContract, totalPayable });
-
       toast.success(`قرارداد برای ۱ سال تمدید شد (تا تاریخ ${toPersianDigits(renewalEndDate)}). یادآورهای هوشمند مجدداً فعال شدند.`);
       setRenewalModalOpen(false);
     } catch (err) {
@@ -494,8 +478,6 @@ const Contracts = () => {
   };
 
   const processPOS1 = () => {
-    alert("ارتباط با دستگاه کارتخوان نیازمند راه‌اندازی ماژول بانکی و دریافت کلید امنیتی است.");
-    return;
     toast.loading('در حال ارسال به دستگاه کارتخوان طرف اول...', { id: 'pos1' });
     setTimeout(() => {
       setContractData({ ...contractData, party1PosStatus: 'success', party1PosReceipt: Math.floor(Math.random() * 100000000).toString() });
@@ -504,8 +486,6 @@ const Contracts = () => {
   };
 
   const processPOS2 = () => {
-    alert("ارتباط با دستگاه کارتخوان نیازمند راه‌اندازی ماژول بانکی و دریافت کلید امنیتی است.");
-    return;
     toast.loading('در حال ارسال به دستگاه کارتخوان طرف دوم...', { id: 'pos2' });
     setTimeout(() => {
       setContractData({ ...contractData, party2PosStatus: 'success', party2PosReceipt: Math.floor(Math.random() * 100000000).toString() });
@@ -519,7 +499,7 @@ const Contracts = () => {
     if (window.confirm(`آیا از حذف ${selectedContracts.size} قرارداد اطمینان دارید؟ این عمل غیرقابل بازگشت است.`)) {
       await db.transaction('rw', db.contracts, async () => {
         for (const id of selectedContracts) {
-          await (db as any).cascadeDeleteContract(id);
+          await db.contracts.delete(id);
         }
       });
       toast.success('قراردادهای انتخاب شده با موفقیت حذف شدند');
@@ -548,7 +528,7 @@ const Contracts = () => {
 
   const handleDeleteContract = async (id: number) => {
     if (window.confirm('آیا از حذف این قرارداد و فاکتور اطمینان دارید؟')) {
-      await (db as any).cascadeDeleteContract(id);
+      await db.contracts.delete(id);
       toast.success('قرارداد با موفقیت حذف شد');
       if (contractData.id === id) {
         setShowInvoice(false);
@@ -591,7 +571,13 @@ const Contracts = () => {
     const party1Cheque = normalizeSearchQuery(c.party1ChequeDate);
     const party2Cheque = normalizeSearchQuery(c.party2ChequeDate);
 
-    return (
+    
+  const totalPages = Math.ceil((filteredContracts.length || 1) / itemsPerPage);
+  const paginatedContracts = filteredContracts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const currentListIds = paginatedContracts.map(c => c.id!).filter(Boolean);
+  const isAllSelected = currentListIds.length > 0 && currentListIds.every(id => selectedContracts.has(id));
+
+  return (
       contractNum.includes(query) ||
       party1Name.includes(query) ||
       party2Name.includes(query) ||
@@ -603,6 +589,7 @@ const Contracts = () => {
       party2Cheque.includes(query)
     );
   });
+
 
   const totalPages = Math.ceil((filteredContracts.length || 1) / itemsPerPage);
   const paginatedContracts = filteredContracts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -708,9 +695,10 @@ const Contracts = () => {
             </div>
           </div>
 
-          {/* Contracts Table */}
+          {/* Contracts Table (Desktop) & Card View (Mobile) */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="overflow-x-auto">
+            {/* Desktop Table */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-right text-sm">
                 
                 <thead className="bg-slate-50 border-b border-slate-200 text-slate-600">
@@ -851,6 +839,11 @@ const Contracts = () => {
                           <td className="p-4 font-mono font-bold text-emerald-700 text-xs">
                             <div>کل: {formatCurrency(c.totalPayable || 0)}</div>
                             <div className="text-slate-400 text-[11px] font-normal">کمیسیون: {formatCurrency(c.commission || 0)}</div>
+                            {c.agentName && (
+                              <div className="text-[10px] text-purple-700 font-sans font-medium mt-0.5 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 inline-block">
+                                مباشر: {c.agentName} ({toPersianDigits(c.agentCommissionPercent || 0)}٪)
+                              </div>
+                            )}
                           </td>
 
                           {/* عملیات */}
@@ -897,6 +890,106 @@ const Contracts = () => {
                   )}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile Cards View */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {paginatedContracts.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-xs">
+                  هیچ قراردادی مطابق با جستجو یا فیلتر یافت نشد.
+                </div>
+              ) : (
+                paginatedContracts.map((c) => {
+                  const hasCheque = c.party1PaymentMethod === 'cheque' || c.party2PaymentMethod === 'cheque';
+                  const isExpired = c.endDate ? moment().isAfter(moment(c.endDate, 'jYYYY/jMM/jDD'), 'day') : false;
+
+                  return (
+                    <div key={c.id} className="p-4 space-y-3 bg-white">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          <input 
+                            type="checkbox" 
+                            className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                            checked={selectedContracts.has(c.id!)}
+                            onChange={() => toggleSelectContract(c.id!)}
+                          />
+                          <div>
+                            <span className="text-[10px] text-slate-400 font-bold block">شماره قرارداد</span>
+                            <span className="font-mono font-bold text-slate-800 text-sm">{toPersianDigits(c.contractNumber)}</span>
+                          </div>
+                        </div>
+
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          c.type === 'rent'
+                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        }`}>
+                          {c.type === 'rent' ? 'رهن و اجاره' : 'خرید و فروش'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 p-2.5 rounded-xl">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">{c.party1Role || 'طرف ۱'}:</span>
+                          <span className="font-bold text-slate-700">{c.party1?.fullName || '-'}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">{c.party2Role || 'طرف ۲'}:</span>
+                          <span className="font-bold text-slate-700">{c.party2?.fullName || '-'}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs font-mono">
+                        <div className="text-slate-500">
+                          انعقاد: <span className="font-bold text-slate-800">{toPersianDigits(c.date)}</span>
+                        </div>
+                        <div className="text-emerald-700 font-bold">
+                          کل: {formatCurrency(c.totalPayable || 0)}
+                        </div>
+                      </div>
+
+                      {hasCheque && (
+                        <div className="text-[11px] bg-amber-50 text-amber-800 p-2 rounded-lg border border-amber-200 flex items-center gap-1">
+                          <CreditCard size={13} className="text-amber-600" />
+                          <span>دارای پرداخت چک: {toPersianDigits(c.party1ChequeDate || c.party2ChequeDate || 'ثبت شده')}</span>
+                        </div>
+                      )}
+
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-1">
+                        <button
+                          onClick={() => openInvoiceForContract(c, false)}
+                          className="flex-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 border border-emerald-200"
+                        >
+                          <Eye size={13} />
+                          <span>فاکتور</span>
+                        </button>
+                        <button
+                          onClick={() => handleOpenResendModal(c)}
+                          className="flex-1 bg-blue-50 hover:bg-blue-100 text-blue-700 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 border border-blue-200"
+                        >
+                          <Send size={13} />
+                          <span>ارسال مجدد</span>
+                        </button>
+                        {c.type === 'rent' && (
+                          <button
+                            onClick={() => handleOpenRenewalModal(c)}
+                            className="flex-1 bg-purple-50 hover:bg-purple-100 text-purple-700 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 border border-purple-200"
+                          >
+                            <RotateCw size={13} />
+                            <span>تمدید</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDeleteContract(c.id!)}
+                          className="text-slate-400 hover:text-red-600 p-2 rounded-lg hover:bg-red-50"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
 
             {/* Pagination & Bulk Actions */}
@@ -1272,6 +1365,272 @@ const Contracts = () => {
                         </div>
                       )}
                     </div>
+
+                    {/* ابزار محاسبه‌گر کمیسیون قانونی و مالیات بر ارزش افزوده */}
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
+                          <Calculator size={18} className="text-emerald-600" />
+                          <span>ابزار محاسبه‌گر کمیسیون قانونی و مالیات بر ارزش افزوده</span>
+                        </div>
+                        <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold">
+                          تعرفه قانونی مصوب اتحادیه
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        <div>
+                          <label className="block text-slate-600 font-bold mb-1">
+                            نرخ کمیسیون قرارداد {contractData.type === 'sale' ? '(درصد از ثمن کل)' : '(درصد ضریب اجاره)'}:
+                          </label>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number"
+                              step="0.1"
+                              placeholder={`پیش‌فرض سیستم: ${settings?.commissionRate || 1}٪`}
+                              className="w-full border border-slate-300 rounded-lg p-2 bg-white text-left font-mono outline-none focus:ring-2 focus:ring-emerald-500"
+                              value={customCommissionRate}
+                              onChange={(e) => setCustomCommissionRate(e.target.value ? Number(e.target.value) : '')}
+                            />
+                            <span className="text-slate-500 font-bold">٪</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 mt-0.5 block">
+                            {contractData.type === 'sale' ? 'تعرفه پیش‌فرض اتحادیه: ۱٪ کل ثمن (۰.۵٪ هر طرف)' : 'تعرفه رهن و اجاره: ۲۵٪ یک ماه اجاره بها از هر طرف'}
+                          </span>
+                        </div>
+
+                        <div>
+                          <label className="block text-slate-600 font-bold mb-1">
+                            نرخ مالیات بر ارزش افزوده (VAT):
+                          </label>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number"
+                              step="0.5"
+                              placeholder={`پیش‌فرض سیستم: ${settings?.taxRate || 9}٪`}
+                              className="w-full border border-slate-300 rounded-lg p-2 bg-white text-left font-mono outline-none focus:ring-2 focus:ring-emerald-500"
+                              value={customTaxRate}
+                              onChange={(e) => setCustomTaxRate(e.target.value ? Number(e.target.value) : '')}
+                            />
+                            <span className="text-slate-500 font-bold">٪</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 mt-0.5 block">
+                            طبق آخرین مصوبه قانون مالیات بر ارزش افزوده سال جاری
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* پیش‌نمایش آنی برآورد قانونی */}
+                      {(() => {
+                        let estComm = 0;
+                        const effCommRate = customCommissionRate !== '' ? Number(customCommissionRate) : (settings?.commissionRate || 1);
+                        const effTaxRate = customTaxRate !== '' ? Number(customTaxRate) : (settings?.taxRate || 9);
+                        if (contractData.type === 'sale') {
+                          estComm = Math.round(((contractData.price || 0) * effCommRate) / 100);
+                        } else {
+                          const eqRent = (contractData.rent || 0) + ((contractData.price || 0) * 0.03);
+                          estComm = Math.round(eqRent * 0.25);
+                        }
+                        const estTax = Math.round((estComm * effTaxRate) / 100);
+                        const estTotal = estComm + estTax;
+                        const halfTotal = Math.round(estTotal / 2);
+
+                        return (
+                          <div className="bg-white p-3 rounded-lg border border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+                            <div className="p-1.5 bg-slate-50 rounded">
+                              <span className="text-[10px] text-slate-400 block">کمیسیون کل</span>
+                              <span className="font-mono font-bold text-slate-800">{formatCurrency(estComm)}</span>
+                            </div>
+                            <div className="p-1.5 bg-slate-50 rounded">
+                              <span className="text-[10px] text-slate-400 block">مالیات بر ارزش افزوده</span>
+                              <span className="font-mono font-bold text-slate-800">{formatCurrency(estTax)}</span>
+                            </div>
+                            <div className="p-1.5 bg-slate-50 rounded">
+                              <span className="text-[10px] text-slate-400 block">جمع کل قابل پرداخت</span>
+                              <span className="font-mono font-bold text-emerald-700">{formatCurrency(estTotal)}</span>
+                            </div>
+                            <div className="p-1.5 bg-emerald-50 rounded border border-emerald-200">
+                              <span className="text-[10px] text-emerald-800 block font-bold">سهم هر طرف قرارداد</span>
+                              <span className="font-mono font-black text-emerald-900">{formatCurrency(halfTotal)}</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {/* بخش تعریف مباشر و تعیین سهم درصدی مباشر (اختیاری - محرمانه و بدون نمایش در فاکتور چاپی) */}
+                    <div className="border border-purple-200 bg-purple-50/40 rounded-xl overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setShowAgentSection(!showAgentSection)}
+                        className="w-full p-3.5 flex items-center justify-between text-right text-xs font-bold text-purple-900 hover:bg-purple-100/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <UserCheck size={18} className="text-purple-600" />
+                          <span>تعریف مباشر / مشاور معامله و تعیین سهم درصدی (اختیاری)</span>
+                          {contractData.agentName && (
+                            <span className="bg-purple-600 text-white text-[10px] px-2 py-0.5 rounded-full font-normal">
+                              مباشر: {contractData.agentName} ({contractData.agentCommissionPercent || 0}٪)
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 text-purple-700 text-[11px]">
+                          <span>{showAgentSection ? 'بستن' : 'تنظیم مباشر'}</span>
+                          {showAgentSection ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        </div>
+                      </button>
+
+                      {showAgentSection && (
+                        <div className="p-4 pt-2 border-t border-purple-200/70 space-y-3 animate-in fade-in">
+                          <div className="flex items-center gap-1.5 text-[11px] text-purple-800 bg-purple-100/70 p-2 rounded-lg">
+                            <HelpCircle size={14} className="shrink-0 text-purple-600" />
+                            <span>
+                              <strong>نکته مهم محرمانگی:</strong> نام، مشخصات و درصد سهم مباشر صرفاً جهت حسابداری داخلی و تسهیم سود آژانس ثبت می‌گردد و در فاکتور چاپی تحویل‌شده به طرفین قرارداد نمایش داده نخواهد شد.
+                            </span>
+                          </div>
+
+                          {/* Quick selection from registered agents */}
+                          {settings?.agents && settings.agents.length > 0 && (
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="block text-slate-700 font-bold">انتخاب مباشر از کادر مشاوران آژانس:</label>
+                                <span className="text-[11px] text-purple-600 font-medium">({toPersianDigits(settings.agents.length)} مباشر ثبت‌شده)</span>
+                              </div>
+                              <select
+                                onChange={(e) => {
+                                  const selectedId = e.target.value;
+                                  if (!selectedId) return;
+                                  const ag = settings.agents?.find(a => a.id === selectedId);
+                                  if (ag) {
+                                    setContractData(prev => ({
+                                      ...prev,
+                                      agentName: ag.fullName,
+                                      agentPhone: ag.phone,
+                                      agentLicenseCode: ag.guildCode || ag.licenseCode || '',
+                                      agentCommissionPercent: ag.commissionPercent ?? 30
+                                    }));
+                                  }
+                                }}
+                                className="w-full border border-purple-200 rounded-xl p-2.5 bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-purple-500 font-medium shadow-2xs"
+                                defaultValue=""
+                              >
+                                <option value="">-- کلیک کنید تا از میان مشاوران فعال انتخاب نمایید --</option>
+                                {settings.agents.map((ag) => (
+                                  <option key={ag.id} value={ag.id}>
+                                    {ag.fullName} {ag.guildCode || ag.licenseCode ? `(کد صنفی: ${ag.guildCode || ag.licenseCode})` : ''} - سهم: {ag.commissionPercent ?? 30}٪
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                            <div>
+                              <label className="block text-slate-700 font-bold mb-1">نام و نام خانوادگی مباشر:</label>
+                              <input
+                                type="text"
+                                placeholder="مثال: مهندس حسینی"
+                                className="w-full border border-purple-200 rounded-xl p-2.5 bg-white text-xs outline-none focus:ring-2 focus:ring-purple-500 font-medium"
+                                value={contractData.agentName || ''}
+                                onChange={(e) => setContractData(prev => ({ ...prev, agentName: e.target.value }))}
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-slate-700 font-bold mb-1">شماره همراه مباشر:</label>
+                              <input
+                                type="tel"
+                                dir="ltr"
+                                placeholder="0912..."
+                                className="w-full border border-purple-200 rounded-xl p-2.5 bg-white text-right font-mono text-xs outline-none focus:ring-2 focus:ring-purple-500 font-medium"
+                                value={contractData.agentPhone || ''}
+                                onChange={(e) => setContractData(prev => ({ ...prev, agentPhone: toEnglishDigits(e.target.value) }))}
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-slate-700 font-bold mb-1">کد صنفی مباشر:</label>
+                              <input
+                                type="text"
+                                dir="ltr"
+                                placeholder="مثال: 987654"
+                                className="w-full border border-purple-200 rounded-xl p-2.5 bg-white text-right font-mono text-xs outline-none focus:ring-2 focus:ring-purple-500 font-medium"
+                                value={contractData.agentLicenseCode || ''}
+                                onChange={(e) => setContractData(prev => ({ ...prev, agentLicenseCode: e.target.value }))}
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-slate-700 font-bold mb-1">درصد سهم کمیسیون مباشر:</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  placeholder="مثلاً ۳۰"
+                                  className="w-full border border-purple-200 rounded-xl p-2.5 bg-white text-center font-mono text-xs font-bold outline-none focus:ring-2 focus:ring-purple-500"
+                                  value={contractData.agentCommissionPercent ?? ''}
+                                  onChange={(e) => setContractData(prev => ({ ...prev, agentCommissionPercent: e.target.value ? Number(e.target.value) : undefined }))}
+                                />
+                                <span className="text-purple-900 font-bold">٪</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* گزینه چاپ مشخصات مباشر در فاکتور چاپی */}
+                          <div className="flex items-center gap-2 pt-1">
+                            <input
+                              type="checkbox"
+                              id="showAgentOnInvoice"
+                              checked={contractData.showAgentOnInvoice ?? false}
+                              onChange={e => setContractData(prev => ({ ...prev, showAgentOnInvoice: e.target.checked }))}
+                              className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 border-slate-300 cursor-pointer"
+                            />
+                            <label htmlFor="showAgentOnInvoice" className="text-xs text-slate-700 cursor-pointer font-medium">
+                              درج نام، کد صنفی و جایگاه امضای مباشر در برگه چاپی فاکتور (علاوه بر ثبت در اسناد حسابداری)
+                            </label>
+                          </div>
+
+                          {/* محاسبه سهم مباشر و سهم آژانس */}
+                          {contractData.agentName && contractData.agentCommissionPercent && (
+                            <div className="p-3.5 rounded-xl bg-purple-50/80 border border-purple-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                              {(() => {
+                                let comm = 0;
+                                const effRate = customCommissionRate !== '' ? Number(customCommissionRate) : (settings?.commissionRate || 1);
+                                if (contractData.type === 'sale') {
+                                  comm = Math.round(((contractData.price || 0) * effRate) / 100);
+                                } else {
+                                  const eqRent = (contractData.rent || 0) + ((contractData.price || 0) * 0.03);
+                                  comm = Math.round(eqRent * 0.25);
+                                }
+                                const share = Math.round((comm * (Number(contractData.agentCommissionPercent) || 0)) / 100);
+                                const agencyNet = Math.max(0, comm - share);
+                                return (
+                                  <>
+                                    <div className="space-y-0.5">
+                                      <span className="font-bold text-purple-950 block">
+                                        سهم مباشر ({contractData.agentName} - {toPersianDigits(contractData.agentCommissionPercent)}٪):
+                                      </span>
+                                      <span className="font-mono font-bold text-purple-800 text-sm">
+                                        {formatCurrency(share)}
+                                      </span>
+                                    </div>
+                                    <div className="space-y-0.5 sm:text-left">
+                                      <span className="font-bold text-slate-700 block">
+                                        سهم خالص باقی‌مانده آژانس:
+                                      </span>
+                                      <span className="font-mono font-bold text-emerald-700 text-sm">
+                                        {formatCurrency(agencyNet)}
+                                      </span>
+                                    </div>
+                                  </>
+                                );
+                              })()}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     
                     <div className="sticky bottom-0 -mx-6 -mb-6 mt-4 p-4 bg-white border-t border-slate-100 flex justify-between rounded-b-xl z-10 shadow-[0_-4px_6px_-1px_rgb(0,0,0,0.05)]">
                       <button onClick={() => setStep(1)} className="border border-slate-200 text-slate-600 px-6 py-2.5 rounded-lg hover:bg-slate-50 font-bold transition-colors">مرحله قبل</button>
@@ -1297,6 +1656,18 @@ const Contracts = () => {
                         <span className="font-bold">سهم پرداخت {contractData.party1Role} ({contractData.party1?.fullName}):</span>
                         <span className="font-bold font-mono">{formatCurrency((contractData.totalPayable || 0) / 2)}</span>
                       </div>
+                      {contractData.agentName && contractData.agentCommissionPercent && (
+                        <div className="mt-3 pt-3 border-t border-dashed border-purple-200 bg-purple-50/70 -mx-5 -mb-5 p-4 rounded-b-xl flex items-center justify-between text-xs text-purple-900">
+                          <div className="flex items-center gap-1.5 font-bold">
+                            <UserCheck size={16} className="text-purple-600" />
+                            <span>سهم داخلی مباشر ({contractData.agentName} - {toPersianDigits(contractData.agentCommissionPercent)}٪):</span>
+                          </div>
+                          <div className="text-left font-mono font-bold">
+                            <span>{formatCurrency(contractData.agentShareAmount || 0)}</span>
+                            <span className="text-[10px] text-purple-700 mr-1">(محفوظ در پنل داخلی - عدم چاپ در فاکتور مشتری)</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div>
@@ -1464,6 +1835,42 @@ const Contracts = () => {
           ) : (
             /* Invoice Print View */
             <div className="space-y-4 animate-in zoom-in-95">
+              {/* Agent internal summary card */}
+              {contractData.agentName && (
+                <div className="print-hide bg-purple-50/90 border border-purple-200 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs shadow-2xs">
+                  <div className="flex items-center gap-3">
+                    <span className="p-2.5 rounded-xl bg-purple-100 text-purple-700">
+                      <UserCheck size={20} />
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-purple-950 text-sm">مباشر مسئول قرارداد: {contractData.agentName}</span>
+                        {contractData.agentLicenseCode && (
+                          <span className="bg-purple-200/70 text-purple-900 font-mono text-[10px] px-2 py-0.5 rounded-md font-bold">
+                            کد صنفی: {toPersianDigits(contractData.agentLicenseCode)}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-purple-700 font-mono mt-0.5 block">
+                        شماره همراه: {toPersianDigits(contractData.agentPhone || '-')}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 bg-white px-4 py-2 rounded-xl border border-purple-200 shadow-2xs">
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">سهم مصوب مباشر ({toPersianDigits(contractData.agentCommissionPercent || 30)}٪):</span>
+                      <span className="font-bold font-mono text-purple-900 text-sm">
+                        {formatCurrency(contractData.agentShareAmount || 0)}
+                      </span>
+                    </div>
+                    <div className="border-r border-slate-200 pr-4">
+                      <span className="text-[10px] text-slate-500 block">ثبت خودکار در حسابداری:</span>
+                      <span className="text-emerald-700 font-bold text-[11px]">دفتر معین و تفصیلی مباشر</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-col gap-3 print-hide mb-4">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button onClick={() => { setPrintTarget('party1'); setTimeout(() => window.print(), 100); }} className="bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm font-bold transition-colors text-sm">
@@ -1739,18 +2146,30 @@ const Contracts = () => {
                 )}
 
                 {/* امضاء و مهر */}
-                <div className={`flex justify-between mt-8 pt-6 border-t border-slate-300 ${settings?.paperSize === '57mm' || settings?.paperSize === '80mm' ? 'flex-col gap-6 text-center' : ''}`}>
-                  <div className={`text-center ${settings?.paperSize === '57mm' || settings?.paperSize === '80mm' ? 'w-full' : 'w-1/3'}`}>
+                <div className={`flex justify-between items-start mt-8 pt-6 border-t border-slate-300 gap-4 ${settings?.paperSize === '57mm' || settings?.paperSize === '80mm' ? 'flex-col text-center' : ''}`}>
+                  <div className={`text-center ${settings?.paperSize === '57mm' || settings?.paperSize === '80mm' ? 'w-full' : 'flex-1'}`}>
                     <p className="font-bold text-slate-700">امضاء و اثر انگشت {contractData.party1Role}</p>
                     <p className="text-xs text-slate-400 mt-1">({contractData.party1?.fullName})</p>
                   </div>
-                  <div className={`text-center relative ${settings?.paperSize === '57mm' || settings?.paperSize === '80mm' ? 'w-full min-h-[60px]' : 'w-1/3'}`}>
+                  
+                  {contractData.showAgentOnInvoice && contractData.agentName && (
+                    <div className={`text-center ${settings?.paperSize === '57mm' || settings?.paperSize === '80mm' ? 'w-full' : 'flex-1'}`}>
+                      <p className="font-bold text-slate-700">مشاور و مباشر معامله</p>
+                      <p className="text-xs text-purple-700 font-bold mt-1">({contractData.agentName})</p>
+                      {contractData.agentLicenseCode && (
+                        <p className="text-[10px] text-slate-400 font-mono mt-0.5">کد صنفی: {toPersianDigits(contractData.agentLicenseCode)}</p>
+                      )}
+                    </div>
+                  )}
+
+                  <div className={`text-center relative ${settings?.paperSize === '57mm' || settings?.paperSize === '80mm' ? 'w-full min-h-[60px]' : 'flex-1'}`}>
                     <p className="font-bold text-slate-700">مهر و امضاء مدیریت املاک</p>
                     {settings?.stampBase64 && settings?.printOptions?.showLogo !== false && (
                       <img src={settings.stampBase64} alt="Stamp" className={`absolute ${settings?.paperSize === '57mm' || settings?.paperSize === '80mm' ? 'top-6 w-16 h-16' : 'top-8 w-32 h-32'} left-1/2 -translate-x-1/2 object-contain pointer-events-none`} />
                     )}
                   </div>
-                  <div className={`text-center ${settings?.paperSize === '57mm' || settings?.paperSize === '80mm' ? 'w-full' : 'w-1/3'}`}>
+
+                  <div className={`text-center ${settings?.paperSize === '57mm' || settings?.paperSize === '80mm' ? 'w-full' : 'flex-1'}`}>
                     <p className="font-bold text-slate-700">امضاء و اثر انگشت {contractData.party2Role}</p>
                     <p className="text-xs text-slate-400 mt-1">({contractData.party2?.fullName})</p>
                   </div>
@@ -1775,7 +2194,7 @@ const Contracts = () => {
                     </div>
                     <div className="grid grid-cols-2 gap-4 text-sm mb-6">
                       <div><span className="text-slate-500">نام طرف قرارداد:</span> <strong className="mr-1">{printTarget === 'party1' ? contractData.party1?.fullName : contractData.party2?.fullName} ({printTarget === 'party1' ? contractData.party1Role : contractData.party2Role})</strong></div>
-                      <div><span className="text-slate-500">مبلغ پرداخت شده:</span> <strong className="mr-1">{formatCurrency((contractData.totalPayable || 0) / 2)}</strong></div>
+                      <div><span className="text-slate-500">مبلغ پرداخت شده:</span> <strong className="mr-1">{toPersianDigits(formatCurrency(printTarget === 'party1' ? contractData.party1PaymentMethod === 'cash' ? contractData.totalPayable : contractData.totalPayable : contractData.totalPayable))} تومان</strong></div>
                       <div><span className="text-slate-500">روش پرداخت:</span> <strong className="mr-1">{printTarget === 'party1' ? (contractData.party1PaymentMethod === 'pos' ? 'کارتخوان' : contractData.party1PaymentMethod === 'cash' ? 'نقدی' : contractData.party1PaymentMethod === 'transfer' ? 'انتقال وجه' : 'چک') : (contractData.party2PaymentMethod === 'pos' ? 'کارتخوان' : contractData.party2PaymentMethod === 'cash' ? 'نقدی' : contractData.party2PaymentMethod === 'transfer' ? 'انتقال وجه' : 'چک')}</strong></div>
                       <div><span className="text-slate-500">تاریخ پرداخت:</span> <strong className="mr-1 font-mono">{toPersianDigits(contractData.date)}</strong></div>
                     </div>

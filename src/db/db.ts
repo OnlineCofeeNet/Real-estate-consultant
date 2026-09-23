@@ -1,53 +1,130 @@
-import axios from 'axios';
-import type { Customer, Contract, Settings, MessageLog, AuditLog, Invoice, Payment, AuthUser, Property, Area, PropertyRequest } from '../types';
+import Dexie, { type Table } from 'dexie';
+import type { Customer, Contract, Settings, MessageLog, PropertyListing, PropertyRequest, ChartOfAccount, JournalEntry, ChequeRecord, ExpenseRecord } from '../types';
 
-class ApiTable<T extends { id?: number }> {
-  constructor(private route: string) {}
-  async toArray(): Promise<T[]> { const res = await axios.get(this.route); if (this.route === '/api/settings') return res.data ? [res.data] : []; return Array.isArray(res.data) ? res.data : []; }
-  async add(item: T): Promise<number> { const res = await axios.post(this.route, item); return res.data; }
-  async bulkAdd(items: T[]): Promise<void> { for (const item of items) await this.add(item); }
-  async put(item: T, explicitId?: number): Promise<number> { const id = explicitId || item.id; if (id) { await axios.put(`${this.route}/${id}`, item); return id; } return this.add(item); }
-  async update(id: number, changes: Partial<T>): Promise<number> { await axios.put(`${this.route}/${id}`, changes); return id; }
-  async delete(id: number): Promise<void> { await axios.delete(`${this.route}/${id}`); }
-  async clear(): Promise<void> { const all = await this.toArray(); for (const item of all) if (item.id) await this.delete(item.id); }
-  async get(id: number): Promise<T | undefined> {
-    if (this.route === '/api/settings') {
-      let res = await axios.get(this.route);
-      if (!res.data) {
-        const defaultSettings = { agencyName: 'مشاورین املاک من', slogan: 'بهترین انتخاب برای شما', phone1: '', phone2: '', fax: '', email: '', address: '', currency: 'تومان', commissionRate: 1, taxRate: 9, posIp: '192.168.1.100', posPort: '8888', posTerminalId: '', psp: 'سامان کیش', bankDetails: '', accountHolderName: '', accountNumber: '', cardNumber: '', shebaNumber: '', theme: 'blue', themeEffect: 'none', font: 'vazirmatn', invoiceLayout: 'standard', paperSize: 'a4', darkMode: false, autoSendInvoices: false, autoSendChequeReminder: false, autoSendRentReminder: false, baleToken: '', rubikaToken: '', telegramToken: '', additionalPhones: [], socialLinks: [], defaultMessages: { welcome: 'سلام 🌹\nبه سامانه هوشمند اطلاع‌رسانی {نام_املاک} خوش آمدید.', birthday: 'زادروزتان خجسته باد! با بهترین آرزوها، مشاور املاک شما.', contractExpiry: 'مشتری گرامی، موعد قرارداد شما به زودی به پایان می‌رسد.', rentPayment: 'مشتری گرامی، موعد پرداخت اجاره بها نزدیک است.', chequeDue: 'مشتری گرامی، موعد سررسید چک شما نزدیک است.', businessCard: 'املاک ما - بهترین مشاور شما در منطقه. تلفن: {phone1}' } };
-        await axios.post(this.route, defaultSettings); res = await axios.get(this.route);
-      }
-      return res.data ? res.data : undefined;
-    }
-    const all = await this.toArray(); return all.find((item: any) => item.id === id);
+export class AppDatabase extends Dexie {
+  customers!: Table<Customer, number>;
+  contracts!: Table<Contract, number>;
+  settings!: Table<Settings, number>;
+  messageLogs!: Table<MessageLog, number>;
+  properties!: Table<PropertyListing, number>;
+  propertyRequests!: Table<PropertyRequest, number>;
+  accounts!: Table<ChartOfAccount, number>;
+  journalEntries!: Table<JournalEntry, number>;
+  cheques!: Table<ChequeRecord, number>;
+  expenses!: Table<ExpenseRecord, number>;
+
+  constructor() {
+    super('RealEstateInvoiceDB');
+    this.version(1).stores({
+      customers: '++id, fullName, nationalId, phone, roles, createdAt',
+      contracts: '++id, contractNumber, date, status, createdAt',
+      settings: '++id',
+      messageLogs: '++id, date, phone, status',
+    });
+
+    // Version 2: Multi-tenancy & Sync indexes
+    this.version(2).stores({
+      customers: '++id, fullName, nationalId, phone, roles, createdAt, agencyId, updatedAt, syncStatus',
+      contracts: '++id, contractNumber, date, status, createdAt, agencyId, updatedAt, syncStatus',
+      settings: '++id, agencyId, updatedAt',
+      messageLogs: '++id, date, phone, status, agencyId, updatedAt, syncStatus',
+    }).upgrade(tx => {
+      const now = Date.now();
+      const defaultAgencyId = 'default_agency';
+      return Promise.all([
+        tx.table('customers').toCollection().modify(c => {
+          if (!c.agencyId) c.agencyId = defaultAgencyId;
+          if (!c.updatedAt) c.updatedAt = c.createdAt || now;
+          if (!c.syncStatus) c.syncStatus = 'synced';
+        }),
+        tx.table('contracts').toCollection().modify(c => {
+          if (!c.agencyId) c.agencyId = defaultAgencyId;
+          if (!c.updatedAt) c.updatedAt = c.createdAt || now;
+          if (!c.syncStatus) c.syncStatus = 'synced';
+        }),
+        tx.table('settings').toCollection().modify(s => {
+          if (!s.agencyId) s.agencyId = defaultAgencyId;
+          if (!s.updatedAt) s.updatedAt = now;
+        }),
+        tx.table('messageLogs').toCollection().modify(m => {
+          if (!m.agencyId) m.agencyId = defaultAgencyId;
+          if (!m.updatedAt) m.updatedAt = m.date || now;
+          if (!m.syncStatus) m.syncStatus = 'synced';
+        })
+      ]);
+    });
+
+    // Version 3: AI Matching properties & requests
+    this.version(3).stores({
+      customers: '++id, fullName, nationalId, phone, roles, createdAt, agencyId, updatedAt, syncStatus',
+      contracts: '++id, contractNumber, date, status, createdAt, agencyId, updatedAt, syncStatus',
+      settings: '++id, agencyId, updatedAt',
+      messageLogs: '++id, date, phone, status, agencyId, updatedAt, syncStatus',
+      properties: '++id, title, dealType, propertyType, area, rooms, neighborhood, price, deposit, monthlyRent, agencyId, createdAt',
+      propertyRequests: '++id, customerName, customerPhone, dealType, propertyType, minArea, maxArea, maxPrice, agencyId, createdAt'
+    });
+
+    // Version 4: Comprehensive Real Estate Accounting System
+    this.version(4).stores({
+      customers: '++id, fullName, nationalId, phone, roles, createdAt, agencyId, updatedAt, syncStatus',
+      contracts: '++id, contractNumber, date, status, createdAt, agencyId, updatedAt, syncStatus',
+      settings: '++id, agencyId, updatedAt',
+      messageLogs: '++id, date, phone, status, agencyId, updatedAt, syncStatus',
+      properties: '++id, title, dealType, propertyType, area, rooms, neighborhood, price, deposit, monthlyRent, agencyId, createdAt',
+      propertyRequests: '++id, customerName, customerPhone, dealType, propertyType, minArea, maxArea, maxPrice, agencyId, createdAt',
+      accounts: '++id, code, title, nature, level, parentId, isTrustAccount, agencyId',
+      journalEntries: '++id, voucherNumber, date, status, referenceType, referenceId, agencyId, createdAt',
+      cheques: '++id, chequeNumber, sayadNumber, type, dueDate, status, customerId, contractId, agencyId',
+      expenses: '++id, title, category, amount, date, paidFromAccountId, agencyId, createdAt'
+    });
   }
-  where(field: string) { return { equals: (value: any) => ({ first: async (): Promise<T | undefined> => { const all = await this.toArray(); return all.find((item: any) => item[field] === value); }, toArray: async (): Promise<T[]> => { const all = await this.toArray(); return all.filter((item: any) => item[field] === value); } }) }; }
-  orderBy(field: string) { return { reverse: () => ({ toArray: async (): Promise<T[]> => { const all = await this.toArray(); return all.sort((a: any, b: any) => a[field] < b[field] ? 1 : a[field] > b[field] ? -1 : 0); } }) }; }
-  async count(): Promise<number> { return (await this.toArray()).length; }
 }
 
-class ApiDatabase {
-  customers = new ApiTable<Customer>('/api/customers'); contracts = new ApiTable<Contract>('/api/contracts'); settings = new ApiTable<Settings>('/api/settings');
-  messageLogs = new ApiTable<MessageLog>('/api/messageLogs'); auditLogs = new ApiTable<AuditLog>('/api/auditLogs'); invoices = new ApiTable<Invoice>('/api/invoices'); payments = new ApiTable<Payment>('/api/payments');
-  users = new ApiTable<AuthUser>('/api/users'); properties = new ApiTable<Property>('/api/properties'); areas = new ApiTable<Area>('/api/areas'); propertyRequests = new ApiTable<PropertyRequest>('/api/propertyRequests');
-  async cascadeDeleteContract(id: number) { const res = await axios.delete(`/api/contracts/${id}/cascade`); return res.data; }
-  async completeContractTransaction(payload: any) { const res = await axios.post('/api/contracts/complete', payload); return res.data; }
-  async transaction(...args: any[]) { const callback = args[args.length - 1]; if (typeof callback === 'function') await callback(); }
-  on(event: string, callback: () => void) { /* API mode: live queries use the local listener set below. */ }
-}
-export const db = new ApiDatabase();
-const listeners = new Set<() => void>();
-const originalAdd = ApiTable.prototype.add;
-ApiTable.prototype.add = async function (this: any, item: any) { const res = await originalAdd.call(this, item); listeners.forEach(cb => cb()); return res; };
-const originalPut = ApiTable.prototype.put;
-ApiTable.prototype.put = async function (this: any, item: any, explicitId?: number) { const res = await originalPut.call(this, item, explicitId); listeners.forEach(cb => cb()); return res; };
-const originalUpdate = ApiTable.prototype.update;
-ApiTable.prototype.update = async function (this: any, id: number, changes: any) { const res = await originalUpdate.call(this, id, changes); listeners.forEach(cb => cb()); return res; };
-const originalDelete = ApiTable.prototype.delete;
-ApiTable.prototype.delete = async function (this: any, id: number) { const res = await originalDelete.call(this, id); listeners.forEach(cb => cb()); return res; };
-import { useState, useEffect } from 'react';
-export function useLiveQuery<T>(querier: () => Promise<T>, deps: any[] = []): T | undefined {
-  const [data, setData] = useState<T | undefined>(undefined);
-  useEffect(() => { let active = true; const fetchData = () => { querier().then(res => { if (active) setData(res); }).catch(console.error); }; fetchData(); listeners.add(fetchData); return () => { active = false; listeners.delete(fetchData); }; }, deps);
-  return data;
-}
+export const db = new AppDatabase();
+
+// Initialize default settings if empty
+db.on('populate', async () => {
+  await db.settings.add({
+    agencyName: 'مشاورین املاک من',
+    slogan: 'بهترین انتخاب برای شما',
+    phone1: '',
+    phone2: '',
+    fax: '',
+    email: '',
+    address: '',
+    currency: 'تومان',
+    commissionRate: 1,
+    taxRate: 9,
+    posIp: '192.168.1.100',
+    posPort: '8888',
+    posTerminalId: '',
+    psp: 'سامان کیش',
+    bankDetails: 'بانک ملت - شماره حساب: 123456 - شبا: IR00000000000 - به نام: موسی مریدی',
+    accountHolderName: 'موسی مریدی',
+    accountNumber: '123456',
+    cardNumber: '6104-3377-0000-0000',
+    shebaNumber: '0000-0000-0000-0000-0000-0000',
+    theme: 'blue',
+    themeEffect: 'none',
+    font: 'vazirmatn',
+    invoiceLayout: 'standard',
+    paperSize: 'a4',
+    darkMode: false,
+    autoSendInvoices: false,
+    autoSendChequeReminder: false,
+    autoSendRentReminder: false,
+    baleToken: '',
+    rubikaToken: '',
+    telegramToken: '',
+    additionalPhones: [],
+    socialLinks: [],
+    defaultMessages: {
+      welcome: 'سلام 🌹\nبه سامانه هوشمند اطلاع‌رسانی {نام_املاک} خوش آمدید.\n\nجهت استفاده از خدمات ربات، دریافت صورتحساب‌ها، فاکتورها و دسترسی به اطلاعات قراردادها در خدمت شما هستیم.',
+      birthday: 'زادروزتان خجسته باد! با بهترین آرزوها، مشاور املاک شما.',
+      contractExpiry: 'مشتری گرامی، موعد قرارداد شما به زودی به پایان می‌رسد. جهت تمدید با ما در تماس باشید.',
+      rentPayment: 'مشتری گرامی، یادآوری می‌گردد موعد پرداخت اجاره بها نزدیک است.',
+      chequeDue: 'مشتری گرامی، یادآوری می‌گردد سررسید چک شما به زودی می‌باشد.',
+      businessCard: 'املاک ما - بهترین مشاور شما در منطقه. تلفن: {phone1}'
+    }
+  });
+});

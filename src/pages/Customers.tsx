@@ -911,9 +911,10 @@ const Customers = () => {
         </div>
       </div>
 
-      {/* جدول مشتریان با ارقام فارسی و تفکیک رنگی وضعیت */}
+      {/* جدول مشتریان با ارقام فارسی و تفکیک رنگی وضعیت (Desktop) و کارت‌های موبایل */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
+        {/* Desktop View */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-right">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-600">
               <tr>
@@ -1135,6 +1136,96 @@ const Customers = () => {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile View: Customers Cards */}
+        <div className="md:hidden divide-y divide-slate-100">
+          {paginatedCustomers.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-xs">
+              هیچ مشتری با این مشخصات یافت نشد.
+            </div>
+          ) : (
+            paginatedCustomers.map((customer) => {
+              const st = getCustomerStatus(customer);
+              const isSelected = selectedCustomers.includes(customer.id as number);
+
+              return (
+                <div key={customer.id} className="p-4 space-y-3 bg-white">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedCustomers([...selectedCustomers, customer.id as number]);
+                          } else {
+                            setSelectedCustomers(selectedCustomers.filter((id) => id !== customer.id));
+                          }
+                        }}
+                      />
+                      <div>
+                        <span className="font-bold text-slate-800 text-sm">{customer.fullName}</span>
+                        <div className="text-[10px] text-slate-400 font-mono">
+                          کد ملی: {toPersianDigits(customer.nationalId) || '-'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      {st.hasUncollectedCheque && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 animate-pulse">
+                          چک برگشتی
+                        </span>
+                      )}
+                      {st.hasDebt && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                          بدهکار
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs bg-slate-50 p-2 rounded-xl">
+                    <span className="text-slate-500">شماره تماس:</span>
+                    <span className="font-mono font-bold text-slate-800" dir="ltr">{toPersianDigits(customer.phone)}</span>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => {
+                          setSelectedCustomers([customer.id as number]);
+                          setIsMessageModalOpen(true);
+                        }}
+                        className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"
+                      >
+                        <Send size={13} />
+                        پیام
+                      </button>
+                      <button
+                        onClick={() => {
+                          setFormData(customer);
+                          setIsModalOpen(true);
+                        }}
+                        className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"
+                      >
+                        <Edit size={13} />
+                        ویرایش
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteClick(customer.id as number)}
+                      className="text-slate-400 hover:text-red-600 p-1.5"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
 
         {/* Pagination Controls */}
