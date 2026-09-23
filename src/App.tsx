@@ -1,6 +1,9 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * معماری B: مسیر اصلی داده املاک و مچ روی PostgreSQL + API سرور است.
+ * SmartMatching به‌عنوان رابط ترکیبی (Dexie + ارسال) حفظ شده است.
  */
 
 import React, { useEffect } from 'react';
@@ -9,6 +12,7 @@ import { Toaster } from 'react-hot-toast';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db/db';
 import Layout from './components/Layout';
+import { AuthGate, ProtectedRoute } from './components/AuthGate';
 import Dashboard from './pages/Dashboard';
 import Customers from './pages/Customers';
 import Contracts from './pages/Contracts';
@@ -17,6 +21,9 @@ import Help from './pages/Help';
 import SmartMatching from './pages/SmartMatching';
 import Accounting from './pages/Accounting';
 import Agents from './pages/Agents';
+import Properties from './pages/Properties';
+import Matching from './pages/Matching';
+import Users from './pages/Users';
 import { doAutoBackup, checkAndRestoreAutoBackup } from './utils/BackupManager';
 import { useAutoMessages } from './hooks/useAutoMessages';
 
@@ -24,18 +31,15 @@ export default function App() {
   useAutoMessages();
 
   useEffect(() => {
-    // On load, check for auto backup
     checkAndRestoreAutoBackup();
 
-    // On exit / hide, do auto backup
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
         doAutoBackup();
       }
     };
-    
-    // Fallback for beforeunload
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+
+    const handleBeforeUnload = () => {
       doAutoBackup();
     };
 
@@ -60,15 +64,40 @@ export default function App() {
     <BrowserRouter>
       <Toaster position="top-center" />
       <Routes>
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Dashboard />} />
-          <Route path="contracts" element={<Contracts />} />
-          <Route path="customers" element={<Customers />} />
-          <Route path="agents" element={<Agents />} />
-          <Route path="accounting" element={<Accounting />} />
-          <Route path="smart-matching" element={<SmartMatching />} />
-          <Route path="settings" element={<Settings />} />
-          <Route path="help" element={<Help />} />
+        {/* ورود / راه‌اندازی اولیه */}
+        <Route element={<AuthGate />}>
+          <Route path="/" element={<Layout />}>
+            <Route index element={<Dashboard />} />
+
+            <Route element={<ProtectedRoute permission="contracts" />}>
+              <Route path="contracts" element={<Contracts />} />
+            </Route>
+
+            <Route element={<ProtectedRoute permission="customers" />}>
+              <Route path="customers" element={<Customers />} />
+            </Route>
+
+            <Route element={<ProtectedRoute permission="properties" />}>
+              <Route path="properties" element={<Properties />} />
+              <Route path="matching" element={<Matching />} />
+              <Route path="smart-matching" element={<SmartMatching />} />
+              <Route path="agents" element={<Agents />} />
+            </Route>
+
+            <Route element={<ProtectedRoute permission="finance" />}>
+              <Route path="accounting" element={<Accounting />} />
+            </Route>
+
+            <Route element={<ProtectedRoute permission="settings" />}>
+              <Route path="settings" element={<Settings />} />
+            </Route>
+
+            <Route element={<ProtectedRoute permission="users" />}>
+              <Route path="users" element={<Users />} />
+            </Route>
+
+            <Route path="help" element={<Help />} />
+          </Route>
         </Route>
       </Routes>
     </BrowserRouter>
