@@ -5,12 +5,14 @@ import axios from 'axios';
 import { PropertyMediaGallery } from '../components/PropertyMediaGallery';
 import {
   Building2, Save, X, MapPin, Home, Banknote, Ruler,
-  Car, Hash, FileText, CheckSquare, Plus, Search, Pencil, Trash2, Filter, ImagePlus
+  Car, Hash, FileText, CheckSquare, Plus, Search, Pencil, Trash2, Filter, ImagePlus,
+  Bot, RotateCcw, Check, Sparkles, Send, Users
 } from 'lucide-react';
 import { db, useLiveQuery } from '../db/db';
 import type {
   Property, PropertyType, TransactionType, PropertyStatus, PropertyFeature, Customer
 } from '../types';
+import { SendPropertyToCustomerModal } from '../components/SendPropertyToCustomerModal';
 
 const PROPERTY_TYPES: { value: PropertyType; label: string }[] = [
   { value: 'apartment', label: 'آپارتمان' },
@@ -111,7 +113,20 @@ export default function Properties() {
   const [filterType, setFilterType] = useState<PropertyType | ''>('');
   const [filterTx, setFilterTx] = useState<TransactionType | ''>('');
   const [filterStatus, setFilterStatus] = useState<PropertyStatus | ''>('');
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+  const [minPrice, setMinPrice] = useState('');
+  const [maxPrice, setMaxPrice] = useState('');
+  const [minDeposit, setMinDeposit] = useState('');
+  const [maxDeposit, setMaxDeposit] = useState('');
+  const [minRent, setMinRent] = useState('');
+  const [maxRent, setMaxRent] = useState('');
+  const [minArea, setMinArea] = useState('');
+  const [maxArea, setMaxArea] = useState('');
+  const [minRooms, setMinRooms] = useState('');
+  const [selectedFeatures, setSelectedFeatures] = useState<PropertyFeature[]>([]);
+  const [agentFilter, setAgentFilter] = useState('');
   const [primaryThumbs, setPrimaryThumbs] = useState<Record<number, string>>({});
+  const [shareModalProperty, setShareModalProperty] = useState<Property | null>(null);
 
   useEffect(() => {
     axios.get('/api/propertyMedia')
@@ -140,15 +155,50 @@ export default function Properties() {
         if (filterType && p.propertyType !== filterType) return false;
         if (filterTx && p.transactionType !== filterTx) return false;
         if (filterStatus && p.status !== filterStatus) return false;
+
+        // Min & Max Area
+        if (minArea && (p.area == null || p.area < Number(minArea))) return false;
+        if (maxArea && (p.area == null || p.area > Number(maxArea))) return false;
+
+        // Min & Max Price
+        if (minPrice && (p.price == null || p.price < Number(minPrice))) return false;
+        if (maxPrice && (p.price == null || p.price > Number(maxPrice))) return false;
+
+        // Min & Max Deposit / Rent
+        if (minDeposit && (p.deposit == null || p.deposit < Number(minDeposit))) return false;
+        if (maxDeposit && (p.deposit == null || p.deposit > Number(maxDeposit))) return false;
+        if (minRent && (p.rent == null || p.rent < Number(minRent))) return false;
+        if (maxRent && (p.rent == null || p.rent > Number(maxRent))) return false;
+
+        // Min Rooms
+        if (minRooms && ((p.bedrooms || (p as any).rooms || 0) < Number(minRooms))) return false;
+
+        // Features filter
+        if (selectedFeatures.length > 0) {
+          const pFeat = p.features || [];
+          const hasAll = selectedFeatures.every(f => pFeat.includes(f));
+          if (!hasAll) return false;
+        }
+
+        // Agent filter
+        if (agentFilter) {
+          const ag = ((p as any).agentName || (p as any).agent || '').toLowerCase();
+          if (!ag.includes(agentFilter.toLowerCase())) return false;
+        }
+
         if (!query) return true;
-        const hay = [p.code, p.title, p.address, p.description]
+        const hay = [p.code, p.title, p.address, p.description, (p as any).neighborhood, p.ownerName]
           .filter(Boolean)
           .join(' ')
           .toLowerCase();
         return hay.includes(query);
       })
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  }, [properties, q, filterType, filterTx, filterStatus]);
+  }, [
+    properties, q, filterType, filterTx, filterStatus,
+    minArea, maxArea, minPrice, maxPrice, minDeposit, maxDeposit, minRent, maxRent,
+    minRooms, selectedFeatures, agentFilter
+  ]);
 
   const openNew = () => setSearchParams({ mode: 'new' });
   const openEdit = (id: number) => setSearchParams({ id: String(id) });
@@ -197,17 +247,37 @@ export default function Properties() {
         </button>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-        <div className="flex items-center gap-2 mb-3 text-slate-600 text-sm font-medium">
-          <Filter size={16} />
-          فیلتر و جستجو
+      {/* نوار جستجوی پیشرفته املاک ثبت شده */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-slate-700 text-sm font-bold">
+            <Filter size={17} className="text-emerald-600" />
+            <span>جستجوی پیشرفته املاک ثبت‌شده</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsAdvancedOpen(!isAdvancedOpen)}
+            className={`text-xs px-3 py-1.5 rounded-lg border font-bold flex items-center gap-1.5 transition-all ${
+              isAdvancedOpen || minArea || maxArea || minPrice || maxPrice || minDeposit || maxDeposit || minRent || maxRent || minRooms || selectedFeatures.length > 0 || agentFilter
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            <Sparkles size={14} className="text-purple-500" />
+            <span>{isAdvancedOpen ? 'بستن فیلترهای تکمیلی' : 'فیلترهای تکمیلی (قیمت، متراژ، امکانات)'}</span>
+            {(minArea || maxArea || minPrice || maxPrice || minDeposit || maxDeposit || minRent || maxRent || minRooms || selectedFeatures.length > 0 || agentFilter) && (
+              <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+            )}
+          </button>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+
+        {/* Basic Search Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="relative">
             <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               className="input pr-9"
-              placeholder="جستجو در کد، عنوان، آدرس..."
+              placeholder="جستجو در کد، عنوان، آدرس، محله، مالک..."
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
@@ -230,6 +300,165 @@ export default function Properties() {
               <option key={s.value} value={s.value}>{s.label}</option>
             ))}
           </select>
+        </div>
+
+        {/* Collapsible Advanced Filters Drawer */}
+        {isAdvancedOpen && (
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4 animate-in slide-in-from-top-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">حداقل متراژ (متر):</label>
+                <input
+                  type="number"
+                  placeholder="مثال: 80"
+                  value={minArea}
+                  onChange={(e) => setMinArea(e.target.value)}
+                  className="input text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">حداکثر متراژ (متر):</label>
+                <input
+                  type="number"
+                  placeholder="مثال: 150"
+                  value={maxArea}
+                  onChange={(e) => setMaxArea(e.target.value)}
+                  className="input text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">حداقل تعداد خواب / اتاق:</label>
+                <input
+                  type="number"
+                  placeholder="مثال: 2"
+                  value={minRooms}
+                  onChange={(e) => setMinRooms(e.target.value)}
+                  className="input text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">مشاور / کارشناس فایل:</label>
+                <input
+                  type="text"
+                  placeholder="نام مشاور..."
+                  value={agentFilter}
+                  onChange={(e) => setAgentFilter(e.target.value)}
+                  className="input text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Price & Rent Ranges */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">حداقل قیمت خرید (ریال/تومان):</label>
+                <input
+                  type="number"
+                  placeholder="مثال: 1000000000"
+                  value={minPrice}
+                  onChange={(e) => setMinPrice(e.target.value)}
+                  className="input text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">حداکثر قیمت خرید:</label>
+                <input
+                  type="number"
+                  placeholder="مثال: 8000000000"
+                  value={maxPrice}
+                  onChange={(e) => setMaxPrice(e.target.value)}
+                  className="input text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">حداکثر ودیعه / رهن:</label>
+                <input
+                  type="number"
+                  placeholder="مثال: 500000000"
+                  value={maxDeposit}
+                  onChange={(e) => setMaxDeposit(e.target.value)}
+                  className="input text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">حداکثر اجاره ماهانه:</label>
+                <input
+                  type="number"
+                  placeholder="مثال: 20000000"
+                  value={maxRent}
+                  onChange={(e) => setMaxRent(e.target.value)}
+                  className="input text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Amenities / Features Multi-Select */}
+            <div>
+              <label className="block text-xs font-bold text-slate-600 mb-2">فیلتر بر اساس امکانات ملک:</label>
+              <div className="flex flex-wrap gap-1.5">
+                {FEATURE_OPTIONS.map((feat) => {
+                  const isChecked = selectedFeatures.includes(feat.value);
+                  return (
+                    <button
+                      key={feat.value}
+                      type="button"
+                      onClick={() => {
+                        setSelectedFeatures(prev =>
+                          isChecked ? prev.filter(f => f !== feat.value) : [...prev, feat.value]
+                        );
+                      }}
+                      className={`text-[11px] px-2.5 py-1 rounded-lg border font-medium transition-all ${
+                        isChecked 
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs' 
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {isChecked ? `✓ ${feat.label}` : feat.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Clear All Filters Button */}
+            <div className="flex justify-end pt-2 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => {
+                  setQ('');
+                  setFilterType('');
+                  setFilterTx('');
+                  setFilterStatus('');
+                  setMinPrice('');
+                  setMaxPrice('');
+                  setMinDeposit('');
+                  setMaxDeposit('');
+                  setMinRent('');
+                  setMaxRent('');
+                  setMinArea('');
+                  setMaxArea('');
+                  setMinRooms('');
+                  setSelectedFeatures([]);
+                  setAgentFilter('');
+                }}
+                className="py-1.5 px-4 rounded-lg text-xs font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 transition flex items-center gap-1.5"
+              >
+                <RotateCcw size={13} />
+                <span>پاکسازی تمام فیلترها</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Counter and Status */}
+        <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
+          <span>
+            نمایش <strong className="text-emerald-700 font-bold">{filtered.length}</strong> ملک از مجموع{' '}
+            <span className="font-bold text-slate-700">{properties.length}</span> ملک ثبت‌شده
+          </span>
+          {(q || filterType || filterTx || filterStatus || minArea || maxArea || minPrice || maxPrice || minDeposit || maxDeposit || minRent || maxRent || minRooms || selectedFeatures.length > 0 || agentFilter) && (
+            <span className="text-xs text-emerald-600 font-medium">فیلترهای جستجو فعال است</span>
+          )}
         </div>
       </div>
 
@@ -286,11 +515,20 @@ export default function Properties() {
                   )}
                 </div>
               </div>
-              <div className="px-4 py-3 border-t border-slate-100 flex gap-2 bg-slate-50/50">
-                <button onClick={() => openEdit(p.id!)} className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition">
+              <div className="px-4 py-3 border-t border-slate-100 flex items-center gap-2 bg-slate-50/50">
+                <button
+                  type="button"
+                  onClick={() => setShareModalProperty(p)}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 shadow-xs transition"
+                  title="ارسال مشخصات این ملک به مشتریان از طریق ربات‌های بله، تلگرام، روبیکا یا پیامک"
+                >
+                  <Bot size={15} />
+                  <span>ارسال به مشتری با بات</span>
+                </button>
+                <button onClick={() => openEdit(p.id!)} className="inline-flex items-center justify-center gap-1 py-2 px-3 rounded-lg text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition">
                   <Pencil size={14} /> ویرایش
                 </button>
-                <button onClick={() => handleDelete(p)} className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm text-rose-600 hover:bg-rose-50 transition" title="حذف">
+                <button onClick={() => handleDelete(p)} className="inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-lg text-xs text-rose-600 hover:bg-rose-50 transition" title="حذف">
                   <Trash2 size={14} />
                 </button>
               </div>
@@ -298,6 +536,13 @@ export default function Properties() {
           ))}
         </div>
       )}
+
+      {/* Modal for sending property to customers via Bots */}
+      <SendPropertyToCustomerModal
+        isOpen={Boolean(shareModalProperty)}
+        onClose={() => setShareModalProperty(null)}
+        property={shareModalProperty}
+      />
 
       <style>{`
         .input { width: 100%; padding: 0.55rem 0.75rem; border: 1px solid #e2e8f0; border-radius: 0.5rem; background: white; font-size: 0.9rem; outline: none; }

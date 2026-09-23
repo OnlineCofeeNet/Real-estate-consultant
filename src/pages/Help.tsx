@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import toast from 'react-hot-toast';
 import { Send, Book, MessageSquare, ExternalLink, FileSpreadsheet } from 'lucide-react';
 import axios from 'axios';
-import { useLiveQuery } from '@/src/db/db';
-import { db } from '../db/db';
+import { db, useLiveQuery } from '../db/db';
 
 const Help = () => {
   const [feedback, setFeedback] = useState('');

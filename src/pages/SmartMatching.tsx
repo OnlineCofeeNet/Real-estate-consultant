@@ -8,9 +8,10 @@ import { appendAgencySignature, toEnglishDigits } from '../utils/format';
 import { 
   Building2, Sparkles, Send, Plus, Search, CheckCircle2,
   AlertCircle, Copy, Share2, MessageSquare, ArrowUpDown, Filter, ChevronDown, ChevronUp,
-  UserCheck, ShieldAlert, Phone, User, Check, EyeOff
+  UserCheck, ShieldAlert, Phone, User, Check, EyeOff, Bot
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { SendPropertyToCustomerModal } from '../components/SendPropertyToCustomerModal';
 
 export default function SmartMatching() {
   const [activeTab, setActiveTab] = useState<'listings' | 'requests' | 'matching'>('matching');
@@ -72,6 +73,7 @@ export default function SmartMatching() {
   });
 
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [botModalProperty, setBotModalProperty] = useState<any | null>(null);
 
   // Form State - Request
   const [reqForm, setReqForm] = useState<Partial<PropertyRequest>>({
@@ -701,6 +703,16 @@ export default function SmartMatching() {
                 </button>
 
                 <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setBotModalProperty(p)}
+                    className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 shadow-xs transition-all"
+                    title="ارسال مشخصات این ملک به مشتریان از طریق ربات‌های پیام‌رسان یا پیامک"
+                  >
+                    <Bot size={13} />
+                    ارسال با بات
+                  </button>
+
                   <button
                     onClick={() => openSendToAgentModal(p)}
                     className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 shadow-xs transition-all"
@@ -1337,6 +1349,15 @@ export default function SmartMatching() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal to send property to customer via Bot */}
+      {botModalProperty && (
+        <SendPropertyToCustomerModal
+          isOpen={Boolean(botModalProperty)}
+          onClose={() => setBotModalProperty(null)}
+          property={botModalProperty}
+        />
       )}
     </div>
   );

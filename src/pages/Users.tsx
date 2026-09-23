@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { useLiveQuery } from '@/src/db/db';
-import { db } from '../db/db';
+import { db, useLiveQuery } from '../db/db';
 import { createUserByAdmin } from '../services/auth';
 import { UserPlus, X } from 'lucide-react';
 import { Shield, ShieldAlert, Check, UserCheck, Search, ShieldCheck } from 'lucide-react';
@@ -41,7 +40,9 @@ export default function Users() {
     admin: 'مدیر کل (تمام دسترسی‌ها)',
     manager: 'مدیر (مالی، قراردادها، مشتریان)',
     agent: 'مشاور (قراردادها، مشتریان)',
-    accountant: 'حسابدار (مالی)'
+    accountant: 'حسابدار (مالی)',
+    read_only: 'فقط مشاهده',
+    pending: 'در انتظار تأیید'
   };
 
   return (

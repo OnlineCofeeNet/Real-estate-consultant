@@ -48,6 +48,7 @@ export interface Contract {
   // Dual payment fields
   party1PaymentMethod: 'cash' | 'transfer' | 'cheque' | 'pos' | 'credit' | '';
   party2PaymentMethod: 'cash' | 'transfer' | 'cheque' | 'pos' | 'credit' | '';
+  party1SharePercent?: number;
   party1PosStatus?: 'pending' | 'success' | 'failed';
   party2PosStatus?: 'pending' | 'success' | 'failed';
   party1PosReceipt?: string;
@@ -84,6 +85,9 @@ export interface Settings {
   currency: 'ریال' | 'تومان';
   commissionRate: number;
   taxRate: number;
+  rentDepositConversionRate?: number;
+  rentCommissionPercent?: number;
+  defaultParty1SharePercent?: number;
   economicCode?: string;
   nationalId?: string;
   posIp: string;
@@ -187,6 +191,42 @@ export interface AgentProfile {
   updatedAt?: number;
 }
 
+export type PropertyType = 'apartment' | 'villa' | 'shop' | 'land' | 'office' | 'warehouse' | 'commercial' | 'other';
+export type TransactionType = 'sale' | 'rent' | 'mortgage' | 'rent_mortgage' | 'exchange' | 'pre_sale' | 'partnership';
+export type PropertyStatus = 'available' | 'reserved' | 'sold' | 'rented' | 'archived';
+export type PropertyFeature = string;
+export type RequestStatus = 'open' | 'matched' | 'closed' | 'archived';
+export type ListingSource = 'agency' | 'website' | 'bot' | 'user';
+
+export interface Property {
+  id?: number;
+  code?: string;
+  title: string;
+  propertyType: PropertyType;
+  transactionType: TransactionType;
+  status: PropertyStatus;
+  price?: number;
+  deposit?: number;
+  rent?: number;
+  area?: number;
+  bedrooms?: number;
+  bathrooms?: number;
+  floor?: number;
+  totalFloors?: number;
+  yearBuilt?: number;
+  parkingSpaces?: number;
+  address?: string;
+  features?: PropertyFeature[];
+  description?: string;
+  notes?: string;
+  ownerId?: number;
+  source?: ListingSource | string;
+  listedAt?: number;
+  createdAt: number;
+  updatedAt?: number;
+  agencyId?: string;
+}
+
 export interface PropertyListing {
   id?: number;
   agencyId?: string;
@@ -217,19 +257,50 @@ export interface PropertyListing {
 export interface PropertyRequest {
   id?: number;
   agencyId?: string;
-  customerName: string;
-  customerPhone: string;
-  dealType: 'sale' | 'rent';
-  propertyType: 'apartment' | 'villa' | 'office' | 'commercial' | 'land';
+  customerId?: number;
+  customerName?: string;
+  customerPhone?: string;
+  title?: string;
+  dealType?: 'sale' | 'rent';
+  transactionType?: TransactionType;
+  propertyType?: PropertyType;
+  status?: RequestStatus;
+  minPrice?: number;
+  maxPrice?: number;
+  minDeposit?: number;
+  maxDeposit?: number;
+  minRent?: number;
+  maxRent?: number;
   minArea?: number;
   maxArea?: number;
+  minBedrooms?: number;
+  maxBedrooms?: number;
   minRooms?: number;
-  preferredNeighborhoods: string[];
-  maxPrice?: number;
-  maxDeposit?: number;
-  maxMonthlyRent?: number;
+  areaId?: string;
+  preferredAreas?: string[];
+  preferredNeighborhoods?: string[];
+  features?: string[];
+  description?: string;
+  notes?: string;
+  source?: ListingSource | string;
+  assignedAgentId?: string;
+  expiresAt?: number;
   createdAt: number;
   updatedAt?: number;
+}
+
+export type AuditAction = 'create' | 'update' | 'delete' | 'login' | 'logout' | 'export' | 'backup';
+export type AuditEntity = 'customer' | 'contract' | 'settings' | 'user' | 'system' | 'property' | 'finance';
+
+export interface AuditLog {
+  id?: number;
+  action: AuditAction;
+  entity: AuditEntity;
+  entityId?: string;
+  description: string;
+  before?: unknown;
+  after?: unknown;
+  createdAt: number;
 }
 
 export interface SmartMatchResult {
@@ -323,5 +394,59 @@ export interface ExpenseRecord {
   receiptNumber?: string;
   description?: string;
   createdAt: number;
+}
+
+// =======================
+// AUTH & USER TYPES
+// =======================
+
+export type UserRole = 'admin' | 'manager' | 'agent' | 'accountant' | 'read_only' | 'pending';
+
+export interface AuthUser {
+  id?: number;
+  username: string;
+  passwordHash: string;
+  salt: string;
+  role: UserRole;
+  email?: string;
+  phone?: string;
+  securityQuestion1?: string;
+  securityAnswer1Hash?: string;
+  securityQuestion2?: string;
+  securityAnswer2Hash?: string;
+  lastLoginAt?: number;
+  createdAt: number;
+}
+
+// =======================
+// INVOICE & PAYMENT TYPES
+// =======================
+
+export type PaymentMethod = 'cash' | 'transfer' | 'cheque' | 'pos' | 'credit';
+
+export interface Invoice {
+  id?: number;
+  invoiceNumber: string;
+  contractNumber: string;
+  customerId?: number;
+  customerName: string;
+  total: number;
+  paidAmount?: number;
+  issuedAt: number;
+  dueDate?: string;
+  status?: 'unpaid' | 'partial' | 'paid' | 'overpaid';
+  agencyId?: string;
+}
+
+export interface Payment {
+  id?: number;
+  invoiceId: number;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  status: 'completed' | 'pending' | 'failed';
+  paidAt: number;
+  receiptNumber?: string;
+  notes?: string;
+  agencyId?: string;
 }
 

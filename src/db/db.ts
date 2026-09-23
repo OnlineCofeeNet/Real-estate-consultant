@@ -1,5 +1,21 @@
 import Dexie, { type Table } from 'dexie';
-import type { Customer, Contract, Settings, MessageLog, PropertyListing, PropertyRequest, ChartOfAccount, JournalEntry, ChequeRecord, ExpenseRecord } from '../types';
+export { useLiveQuery } from 'dexie-react-hooks';
+import type { 
+  Customer, 
+  Contract, 
+  Settings, 
+  MessageLog, 
+  PropertyListing, 
+  PropertyRequest, 
+  ChartOfAccount, 
+  JournalEntry, 
+  ChequeRecord, 
+  ExpenseRecord,
+  AuthUser,
+  Invoice,
+  Payment,
+  AuditLog
+} from '../types';
 
 export class AppDatabase extends Dexie {
   customers!: Table<Customer, number>;
@@ -12,6 +28,10 @@ export class AppDatabase extends Dexie {
   journalEntries!: Table<JournalEntry, number>;
   cheques!: Table<ChequeRecord, number>;
   expenses!: Table<ExpenseRecord, number>;
+  users!: Table<AuthUser, number>;
+  invoices!: Table<Invoice, number>;
+  payments!: Table<Payment, number>;
+  auditLogs!: Table<AuditLog, number>;
 
   constructor() {
     super('RealEstateInvoiceDB');
@@ -76,6 +96,24 @@ export class AppDatabase extends Dexie {
       journalEntries: '++id, voucherNumber, date, status, referenceType, referenceId, agencyId, createdAt',
       cheques: '++id, chequeNumber, sayadNumber, type, dueDate, status, customerId, contractId, agencyId',
       expenses: '++id, title, category, amount, date, paidFromAccountId, agencyId, createdAt'
+    });
+
+    // Version 5: Users, Invoices & Payments
+    this.version(5).stores({
+      customers: '++id, fullName, nationalId, phone, roles, createdAt, agencyId, updatedAt, syncStatus',
+      contracts: '++id, contractNumber, date, status, createdAt, agencyId, updatedAt, syncStatus',
+      settings: '++id, agencyId, updatedAt',
+      messageLogs: '++id, date, phone, status, agencyId, updatedAt, syncStatus',
+      properties: '++id, title, dealType, propertyType, area, rooms, neighborhood, price, deposit, monthlyRent, agencyId, createdAt',
+      propertyRequests: '++id, customerName, customerPhone, dealType, propertyType, minArea, maxArea, maxPrice, agencyId, createdAt',
+      accounts: '++id, code, title, nature, level, parentId, isTrustAccount, agencyId',
+      journalEntries: '++id, voucherNumber, date, status, referenceType, referenceId, agencyId, createdAt',
+      cheques: '++id, chequeNumber, sayadNumber, type, dueDate, status, customerId, contractId, agencyId',
+      expenses: '++id, title, category, amount, date, paidFromAccountId, agencyId, createdAt',
+      users: '++id, username, role, phone, createdAt',
+      invoices: '++id, invoiceNumber, contractNumber, customerId, issuedAt, status',
+      payments: '++id, invoiceId, paymentMethod, status, paidAt',
+      auditLogs: '++id, action, entity, entityId, createdAt'
     });
   }
 }

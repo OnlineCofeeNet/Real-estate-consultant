@@ -107,6 +107,18 @@ const Contracts = () => {
   // List filters and search
   const [listSearch, setListSearch] = useState('');
   const [listFilter, setListFilter] = useState<'all' | 'rent' | 'sale' | 'cheque'>('all');
+  const [listDateFrom, setListDateFrom] = useState('');
+  const [listDateTo, setListDateTo] = useState('');
+  const [listAgent, setListAgent] = useState('');
+  const [isListAdvancedOpen, setIsListAdvancedOpen] = useState(false);
+
+  // Available unique agents for filtering
+  const availableAgents = React.useMemo(() => {
+    const set = new Set<string>();
+    (settings?.agents || []).forEach(a => { if (a.fullName?.trim()) set.add(a.fullName.trim()); });
+    (contracts || []).forEach(c => { if (c.agentName?.trim()) set.add(c.agentName.trim()); });
+    return Array.from(set).sort();
+  }, [settings?.agents, contracts]);
 
   // Optional Agent / Facilitator (مباشر قرارداد)
   const [showAgentSection, setShowAgentSection] = useState(false);
@@ -553,10 +565,26 @@ const Contracts = () => {
 
   // Filtered contracts for list view
   const filteredContracts = (contracts || []).filter(c => {
-    // Type filter
+    // Deal Type filter
     if (listFilter === 'rent' && c.type !== 'rent') return false;
     if (listFilter === 'sale' && c.type !== 'sale') return false;
     if (listFilter === 'cheque' && c.party1PaymentMethod !== 'cheque' && c.party2PaymentMethod !== 'cheque') return false;
+
+    // Agent / Advisor filter
+    if (listAgent && c.agentName !== listAgent) return false;
+
+    // Date range filter (Jalali comparison)
+    if (listDateFrom || listDateTo) {
+      const cDateClean = toEnglishDigits(c.date || '').replace(/[^0-9]/g, '');
+      if (listDateFrom) {
+        const fromClean = toEnglishDigits(listDateFrom).replace(/[^0-9]/g, '');
+        if (cDateClean < fromClean) return false;
+      }
+      if (listDateTo) {
+        const toClean = toEnglishDigits(listDateTo).replace(/[^0-9]/g, '');
+        if (cDateClean > toClean) return false;
+      }
+    }
 
     // Search query
     if (!listSearch.trim()) return true;
@@ -570,14 +598,10 @@ const Contracts = () => {
     const party2National = normalizeSearchQuery(c.party2?.nationalId);
     const party1Cheque = normalizeSearchQuery(c.party1ChequeDate);
     const party2Cheque = normalizeSearchQuery(c.party2ChequeDate);
+    const agentName = normalizeSearchQuery(c.agentName);
+    const propAddress = normalizeSearchQuery(c.propertyAddress);
 
-    
-  const totalPages = Math.ceil((filteredContracts.length || 1) / itemsPerPage);
-  const paginatedContracts = filteredContracts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-  const currentListIds = paginatedContracts.map(c => c.id!).filter(Boolean);
-  const isAllSelected = currentListIds.length > 0 && currentListIds.every(id => selectedContracts.has(id));
-
-  return (
+    return (
       contractNum.includes(query) ||
       party1Name.includes(query) ||
       party2Name.includes(query) ||
@@ -586,7 +610,9 @@ const Contracts = () => {
       party1National.includes(query) ||
       party2National.includes(query) ||
       party1Cheque.includes(query) ||
-      party2Cheque.includes(query)
+      party2Cheque.includes(query) ||
+      agentName.includes(query) ||
+      propAddress.includes(query)
     );
   });
 
@@ -646,52 +672,144 @@ const Contracts = () => {
       {activeTab === 'list' && !showInvoice && (
         <div className="space-y-6 animate-in fade-in">
           {/* Controls: Search & Filters */}
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="relative w-full md:w-80">
-              <Search size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="جستجوی شماره، نام، کد ملی، موعد چک..."
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-10 pl-3 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
-                value={listSearch}
-                onChange={(e) => setListSearch(e.target.value)}
-              />
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="relative w-full md:w-80">
+                <Search size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="جستجوی شماره، نام، کد ملی، موعد چک، مشاور..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-10 pl-3 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                  value={listSearch}
+                  onChange={(e) => setListSearch(e.target.value)}
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                <button
+                  onClick={() => setListFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                    listFilter === 'all' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  همه ({toPersianDigits(contracts?.length || 0)})
+                </button>
+                <button
+                  onClick={() => setListFilter('rent')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                    listFilter === 'rent' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  رهن و اجاره ({toPersianDigits(contracts?.filter(c => c.type === 'rent').length || 0)})
+                </button>
+                <button
+                  onClick={() => setListFilter('sale')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                    listFilter === 'sale' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  خرید و فروش ({toPersianDigits(contracts?.filter(c => c.type === 'sale').length || 0)})
+                </button>
+                <button
+                  onClick={() => setListFilter('cheque')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors ${
+                    listFilter === 'cheque' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+                  }`}
+                >
+                  <CreditCard size={14} className="text-amber-600" />
+                  <span>دارای چک ({toPersianDigits(contracts?.filter(c => c.party1PaymentMethod === 'cheque' || c.party2PaymentMethod === 'cheque').length || 0)})</span>
+                </button>
+
+                <button
+                  onClick={() => setIsListAdvancedOpen(!isListAdvancedOpen)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition-all ${
+                    isListAdvancedOpen || listAgent || listDateFrom || listDateTo
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <Filter size={14} />
+                  <span>فیلتر پیشرفته (تاریخ و مشاور)</span>
+                  {(listAgent || listDateFrom || listDateTo) && (
+                    <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+                  )}
+                </button>
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-              <button
-                onClick={() => setListFilter('all')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                  listFilter === 'all' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                همه ({toPersianDigits(contracts?.length || 0)})
-              </button>
-              <button
-                onClick={() => setListFilter('rent')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                  listFilter === 'rent' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                رهن و اجاره ({toPersianDigits(contracts?.filter(c => c.type === 'rent').length || 0)})
-              </button>
-              <button
-                onClick={() => setListFilter('sale')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                  listFilter === 'sale' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                خرید و فروش ({toPersianDigits(contracts?.filter(c => c.type === 'sale').length || 0)})
-              </button>
-              <button
-                onClick={() => setListFilter('cheque')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors ${
-                  listFilter === 'cheque' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
-                }`}
-              >
-                <CreditCard size={14} className="text-amber-600" />
-                <span>دارای پرداخت با چک ({toPersianDigits(contracts?.filter(c => c.party1PaymentMethod === 'cheque' || c.party2PaymentMethod === 'cheque').length || 0)})</span>
-              </button>
+            {/* Advanced Filters Panel: Date Range and Agent Name */}
+            {isListAdvancedOpen && (
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 animate-in slide-in-from-top-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">مشاور / مباشر معامله:</label>
+                  <select
+                    value={listAgent}
+                    onChange={(e) => setListAgent(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  >
+                    <option value="">همه مشاوران و مباشرین</option>
+                    {availableAgents.map((agent) => (
+                      <option key={agent} value={agent}>{agent}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">از تاریخ ثبت (شمسی):</label>
+                  <DatePicker
+                    calendar={persian}
+                    locale={persian_fa}
+                    format="YYYY/MM/DD"
+                    value={listDateFrom}
+                    onChange={(d) => setListDateFrom(d ? d.format() : '')}
+                    inputClass="w-full bg-white border border-slate-200 rounded-lg p-1.5 text-xs font-mono text-center focus:ring-2 focus:ring-emerald-500 outline-none"
+                    placeholder="1404/01/01"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">تا تاریخ ثبت (شمسی):</label>
+                  <DatePicker
+                    calendar={persian}
+                    locale={persian_fa}
+                    format="YYYY/MM/DD"
+                    value={listDateTo}
+                    onChange={(d) => setListDateTo(d ? d.format() : '')}
+                    inputClass="w-full bg-white border border-slate-200 rounded-lg p-1.5 text-xs font-mono text-center focus:ring-2 focus:ring-emerald-500 outline-none"
+                    placeholder="1404/12/29"
+                  />
+                </div>
+
+                <div className="flex items-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setListSearch('');
+                      setListFilter('all');
+                      setListAgent('');
+                      setListDateFrom('');
+                      setListDateTo('');
+                    }}
+                    className="w-full py-1.5 px-3 rounded-lg text-xs font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 transition-colors flex items-center justify-center gap-1"
+                  >
+                    <RefreshCw size={13} />
+                    <span>پاکسازی فیلترها</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Filter Result Counter */}
+            <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
+              <span>
+                تعداد نتایج فیلتر شده: <strong className="text-emerald-700 font-bold">{toPersianDigits(filteredContracts.length)}</strong> قرارداد
+                {contracts && filteredContracts.length !== contracts.length && (
+                  <span className="text-slate-400 mr-1">(از کل {toPersianDigits(contracts.length)})</span>
+                )}
+              </span>
+              {(listSearch || listAgent || listDateFrom || listDateTo || listFilter !== 'all') && (
+                <span className="text-xs text-emerald-600 font-medium">فیلترهای سفارشی فعال است</span>
+              )}
             </div>
           </div>
 

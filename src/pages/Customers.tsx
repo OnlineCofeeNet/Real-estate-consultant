@@ -67,6 +67,8 @@ const Customers = () => {
   const [maxAmount, setMaxAmount] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [agentFilter, setAgentFilter] = useState("");
+  const [dealTypeFilter, setDealTypeFilter] = useState<"all" | "sale" | "rent">("all");
   const [statusFilter, setStatusFilter] = useState<
     "all" | "uncollected_cheque" | "debt" | "landlord" | "buyer_landlord"
   >("all");
@@ -81,6 +83,14 @@ const Customers = () => {
   const settings = useLiveQuery(() => db.settings.get(1));
   const contracts = useLiveQuery(() => db.contracts.toArray());
   const allCustomers = useLiveQuery(() => db.customers.toArray());
+
+  // Unique available agents for filtering
+  const availableAgents = useMemo(() => {
+    const set = new Set<string>();
+    (settings?.agents || []).forEach(a => { if (a.fullName?.trim()) set.add(a.fullName.trim()); });
+    (contracts || []).forEach(c => { if (c.agentName?.trim()) set.add(c.agentName.trim()); });
+    return Array.from(set).sort();
+  }, [settings?.agents, contracts]);
 
   // محاسبه هوشمند وضعیت چک، بدهی، موجر و خریدار برای هر مشتری
   const getCustomerStatus = (customer: Customer) => {
@@ -153,15 +163,39 @@ const Customers = () => {
       ),
     );
 
-    // 5. Total transactions & Last contract date
+    // 5. Total transactions & Last contract date & Agents & Deal types
     let totalTransactionAmount = 0;
     let lastContractDate = '';
+    const agents = new Set<string>();
+    const dealTypes = new Set<string>();
+    const allDates: string[] = [];
+
+    // Also check customer profile roles / type
+    if (customer.roles?.includes('موجر') || customer.roles?.includes('مستاجر') || customer.customerType === 'landlord' || customer.customerType === 'tenant') {
+      dealTypes.add('rent');
+    }
+    if (customer.roles?.includes('خریدار') || customer.roles?.includes('فروشنده') || customer.customerType === 'buyer' || customer.customerType === 'seller') {
+      dealTypes.add('sale');
+    }
+
     customerContracts.forEach(c => {
       totalTransactionAmount += (c.totalPayable || 0);
-      if (!lastContractDate || (c.date && c.date > lastContractDate)) {
-        lastContractDate = c.date || '';
+      if (c.date) {
+        allDates.push(c.date);
+        if (!lastContractDate || c.date > lastContractDate) {
+          lastContractDate = c.date;
+        }
       }
+      if (c.agentName?.trim()) agents.add(c.agentName.trim());
+      if (c.type) dealTypes.add(c.type);
     });
+
+    if (customer.createdAt) {
+      try {
+        const regDate = moment(customer.createdAt).format('jYYYY/jMM/jDD');
+        allDates.push(regDate);
+      } catch (e) {}
+    }
 
     return {
       hasUncollectedCheque,
@@ -170,7 +204,10 @@ const Customers = () => {
       isLandlord,
       isBuyer,
       totalTransactionAmount,
-      lastContractDate
+      lastContractDate,
+      agents: Array.from(agents),
+      dealTypes: Array.from(dealTypes),
+      allDates
     };
   };
 
@@ -195,16 +232,25 @@ const Customers = () => {
     if (maxAmount) {
       list = list.filter(c => getCustomerStatus(c).totalTransactionAmount <= Number(maxAmount));
     }
+
+    if (agentFilter) {
+      list = list.filter(c => getCustomerStatus(c).agents.includes(agentFilter));
+    }
+
+    if (dealTypeFilter !== 'all') {
+      list = list.filter(c => getCustomerStatus(c).dealTypes.includes(dealTypeFilter));
+    }
+
     if (fromDate) {
       list = list.filter(c => {
-        const lastDate = getCustomerStatus(c).lastContractDate;
-        return lastDate && lastDate >= fromDate;
+        const st = getCustomerStatus(c);
+        return st.allDates.some(d => d >= fromDate) || (st.lastContractDate && st.lastContractDate >= fromDate);
       });
     }
     if (toDate) {
       list = list.filter(c => {
-        const lastDate = getCustomerStatus(c).lastContractDate;
-        return lastDate && lastDate <= toDate;
+        const st = getCustomerStatus(c);
+        return st.allDates.some(d => d <= toDate) || (st.lastContractDate && st.lastContractDate <= toDate);
       });
     }
 
@@ -222,7 +268,7 @@ const Customers = () => {
     }
 
     return list;
-  }, [allCustomers, search, statusFilter, contracts, minAmount, maxAmount, fromDate, toDate]);
+  }, [allCustomers, search, statusFilter, contracts, minAmount, maxAmount, fromDate, toDate, agentFilter, dealTypeFilter]);
 
   const counts = useMemo(() => {
     if (!allCustomers)
@@ -785,45 +831,113 @@ const Customers = () => {
           )}
           <button 
             onClick={() => setIsAdvancedSearchOpen(!isAdvancedSearchOpen)}
-            className={`text-xs px-3 py-1.5 rounded-md border font-bold flex items-center gap-1 transition-colors ${isAdvancedSearchOpen ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+            className={`text-xs px-3 py-1.5 rounded-md border font-bold flex items-center gap-1.5 transition-colors ${
+              isAdvancedSearchOpen || agentFilter || dealTypeFilter !== 'all' || minAmount || maxAmount || fromDate || toDate
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-300' 
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+            }`}
           >
-            <Filter size={14} /> جستجوی پیشرفته
+            <Filter size={14} />
+            <span>جستجوی پیشرفته</span>
+            {(agentFilter || dealTypeFilter !== 'all' || minAmount || maxAmount || fromDate || toDate) && (
+              <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+            )}
           </button>
         </div>
 
         {isAdvancedSearchOpen && (
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-in slide-in-from-top-2">
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 animate-in slide-in-from-top-2">
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1">مبلغ تراکنش (از)</label>
-              <input type="number" value={minAmount} onChange={e => setMinAmount(e.target.value)} placeholder="مثلا 1000000" className="w-full text-sm border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 outline-none border bg-white" />
+              <label className="block text-xs font-bold text-slate-600 mb-1">نام مشاور / مباشر مرتبط:</label>
+              <select
+                value={agentFilter}
+                onChange={(e) => setAgentFilter(e.target.value)}
+                className="w-full text-xs border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 outline-none border bg-white"
+              >
+                <option value="">همه مشاوران و مباشرین</option>
+                {availableAgents.map((agent) => (
+                  <option key={agent} value={agent}>{agent}</option>
+                ))}
+              </select>
             </div>
+
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1">مبلغ تراکنش (تا)</label>
-              <input type="number" value={maxAmount} onChange={e => setMaxAmount(e.target.value)} placeholder="مثلا 50000000" className="w-full text-sm border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 outline-none border bg-white" />
+              <label className="block text-xs font-bold text-slate-600 mb-1">نوع معامله قرارداد:</label>
+              <select
+                value={dealTypeFilter}
+                onChange={(e) => setDealTypeFilter(e.target.value as any)}
+                className="w-full text-xs border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 outline-none border bg-white"
+              >
+                <option value="all">همه انواع معاملات</option>
+                <option value="sale">خرید و فروش (مشتریان خریدار/فروشنده)</option>
+                <option value="rent">رهن و اجاره (مشتریان موجر/مستاجر)</option>
+              </select>
             </div>
+
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1">آخرین قرارداد (از تاریخ)</label>
+              <label className="block text-xs font-bold text-slate-600 mb-1">تاریخ قرارداد / ثبت (از تاریخ):</label>
               <DatePicker 
                 calendar={persian} 
                 locale={persian_fa} 
                 format="YYYY/MM/DD" 
                 value={fromDate} 
                 onChange={(dateObject) => setFromDate(dateObject ? dateObject.format() : '')} 
-                inputClass="w-full border border-slate-200 rounded-lg p-2 text-left font-mono text-sm bg-white focus:ring-2 focus:ring-emerald-500 outline-none" 
+                inputClass="w-full border border-slate-200 rounded-lg p-2 text-center font-mono text-xs bg-white focus:ring-2 focus:ring-emerald-500 outline-none" 
                 placeholder="1404/01/01" 
               />
             </div>
+
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1">آخرین قرارداد (تا تاریخ)</label>
+              <label className="block text-xs font-bold text-slate-600 mb-1">تاریخ قرارداد / ثبت (تا تاریخ):</label>
               <DatePicker 
                 calendar={persian} 
                 locale={persian_fa} 
                 format="YYYY/MM/DD" 
                 value={toDate} 
                 onChange={(dateObject) => setToDate(dateObject ? dateObject.format() : '')} 
-                inputClass="w-full border border-slate-200 rounded-lg p-2 text-left font-mono text-sm bg-white focus:ring-2 focus:ring-emerald-500 outline-none" 
+                inputClass="w-full border border-slate-200 rounded-lg p-2 text-center font-mono text-xs bg-white focus:ring-2 focus:ring-emerald-500 outline-none" 
                 placeholder="1404/12/29" 
               />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-600 mb-1">حداقل مبلغ تراکنش (تومان):</label>
+              <input 
+                type="number" 
+                value={minAmount} 
+                onChange={e => setMinAmount(e.target.value)} 
+                placeholder="مثلا 1000000" 
+                className="w-full text-xs border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 outline-none border bg-white" 
+              />
+            </div>
+
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <label className="block text-xs font-bold text-slate-600 mb-1">حداکثر مبلغ تراکنش:</label>
+                <input 
+                  type="number" 
+                  value={maxAmount} 
+                  onChange={e => setMaxAmount(e.target.value)} 
+                  placeholder="مثلا 50000000" 
+                  className="w-full text-xs border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 outline-none border bg-white" 
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  setAgentFilter('');
+                  setDealTypeFilter('all');
+                  setMinAmount('');
+                  setMaxAmount('');
+                  setFromDate('');
+                  setToDate('');
+                  setStatusFilter('all');
+                }}
+                className="py-2 px-3 rounded-lg text-xs font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 transition-colors whitespace-nowrap"
+              >
+                پاکسازی فیلترها
+              </button>
             </div>
           </div>
         )}

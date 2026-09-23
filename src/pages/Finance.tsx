@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useLiveQuery } from '@/src/db/db';
-import { db } from '../db/db';
+import { db, useLiveQuery } from '../db/db';
 import { paymentStatus } from '../services/finance';
 import type { Invoice, PaymentMethod } from '../types';
 import { CreditCard, FileText, Wallet, CheckCircle2, Clock3, Search } from 'lucide-react';
